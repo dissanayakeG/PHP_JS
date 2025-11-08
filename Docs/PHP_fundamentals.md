@@ -106,7 +106,8 @@ echo $f('Hello'); # strlen('Hello) -> 5
 -   users can input scripts like `<script>alert('Hello');</script>` into input fields.
 -   Hackers can input malicious code from another server to the user’s web browser, the risk is higher.
 -   This type of attack is called `cross-site scripting (XSS)` attack.
--   Therefore, before displaying user input on a webpage, you should always escape the data. To do that, you use the `htmlspecialchars()` function:
+-   Therefore, before displaying user input on a webpage, you should always escape the data. To do that, 
+    you use the `htmlspecialchars()` function:
 -   When you use get request ($\_GET), it appends input as query data, so use htmlspecialchars() to prevent XSS.
 -   When submiting a form to same file, use htmlspecialchars() to prevent XSS.
 
@@ -518,6 +519,17 @@ $logger->logToDatabase('this is a test message #2');
 
 ## Working with Objects
 
+# Serialization in PHP
+
+Serialization is the process of converting a PHP value (object, array, etc.) into a storable string representation that can be saved to a file, database, or transmitted over a network. Unserialization (or deserialization) is the reverse process—reconstructing the original PHP value from that string.
+
+## Why Use Serialization?
+
+- Persistence: Store objects in sessions, databases, or files
+- Caching: Save expensive-to-create objects for later reuse
+- Data transfer: Send complex data structures between systems
+- Message queues: Pass objects between different parts of an application
+
 ### serialize
 
 -   The `serialize()` function converts an object into a storable string representation (a byte stream).
@@ -536,6 +548,72 @@ $logger->logToDatabase('this is a test message #2');
 -   The `unserialize()` method calls the `__unserialize()` or `__wakeup()` method of the object to perform re-initialization tasks.
 -   The `unserialize()` method calls the `__unserialize()` method only if an object has both `__unserialize()` and \_\_wakeup() methods.
 -   The `unserialize()` function creates a completely new object that does not reference the original object.
+
+### Complete Example: Session Cache
+
+```php
+class UserSession {
+    public $userId;
+    public $username;
+    public $loginTime;
+    private $cache; // Large temporary data
+    private $apiClient; // Non-serializable resource
+    
+    public function __construct($userId, $username) {
+        $this->userId = $userId;
+        $this->username = $username;
+        $this->loginTime = time();
+        $this->cache = []; // Loaded separately
+        $this->apiClient = new ApiClient(); // Resource
+    }
+    
+    public function __sleep() {
+        // Save session to disk
+        // Exclude cache (too large) and apiClient (resource)        
+        // Could perform cleanup here
+        $this->cache = null;        
+        return ['userId', 'username', 'loginTime'];
+    }
+    
+    public function __wakeup() {
+        // Restore session from disk        
+        // Reinitialize resources
+        $this->cache = [];
+        $this->apiClient = new ApiClient();
+        
+        // Validate session isn't expired
+        if (time() - $this->loginTime > 3600) {
+            throw new Exception('Session expired');
+        }
+    }
+}
+
+// Usage
+$session = new UserSession(123, 'alice');
+$_SESSION['user'] = serialize($session); // __sleep() called
+
+// Later request
+$session = unserialize($_SESSION['user']); // __wakeup() called
+
+# after PHP 7.4
+class ModernUser {
+    private $data;
+    
+    public function __serialize(): array {
+        // Return array of data to serialize
+        return [
+            'data' => $this->data,
+            'timestamp' => time()
+        ];
+    }
+    
+    public function __unserialize(array $data): void {
+        // Receive the serialized data
+        $this->data = $data['data'];
+        // Can use the timestamp for validation
+    }
+}
+```
 
 ### Clone Object
 
@@ -569,7 +647,7 @@ object(Person)#2 (1) {
 -   A shallow copy means PHP copies all properties of the object.
 -   However, if a property references another object, the reference is copied — both cloned and original objects will still point to the same referenced object.
 
-### Deep copy with \_\_clone method
+### Deep copy with __clone method
 
 -   A deep copy duplicates not just the object itself, but also any referenced objects within it.
 -   PHP automatically calls the `__clone()` method after cloning an object.
@@ -653,7 +731,7 @@ $customer = new Customer('Bob');
 ```
 
 -   We can use `spl_autoload_register` function to autoload the classes, interfaces, and traits.
--   The spl_autoload_register() function allows you to use multiple autoloading functions.
+-   The `spl_autoload_register()` function allows you to use multiple autoloading functions.
 
 ```php
 # functions.php
@@ -667,8 +745,6 @@ function load_model($class_name)
 		require $path_to_file;
 	}
 }
-
-
 spl_autoload_register('load_model');
 
 # index.php
@@ -695,6 +771,7 @@ $contact = new Contact('john.doe@example.com');
 }
 
 # run composer dump-autoload and it will generate /vendor/autoload.php
+# You just can import /vendor/autoload.php in the index.php 
 
 # index.php
 <?php
