@@ -189,7 +189,7 @@ Stack (Fixed size) | Heap (Dynamic size)
 Primitive values   | Object data
 References to objects → | ← Referenced by stack variables
 
-![stackAndHeapInJs.png](./stackAndHeapInJs.png)
+![Stack-and-heap](./images/Js-stack-and-heap.png)
 
 ## Arrays
 
@@ -400,7 +400,7 @@ increaseAge(person);
 console.log(person); // { name: "John", age: 26 }
 ```
 
-![When an object is passed to function](./passByValue-object.png) ![When function changes reference](./passByValue-object-and-change-reference.png)
+![Pass-by-value-object](./images/Js-pass-by-value-object.png) ![Pass-by-value-object-and-change-reference](./images/Js-pass-by-value-object-and-change-reference.png)
 
 Another example:
 
@@ -608,6 +608,8 @@ teacher.__proto__ = person;
 console.log(teacher.greet()); // "Hi, I'm John Doe"
 console.log(teacher.teach("JavaScript")); // "I can teach JavaScript"
 ```
+
+![ProtoType-linkage](./images/Js-protoType-linkage.png)
 
 ### Modern Ways to Create Inheritance
 

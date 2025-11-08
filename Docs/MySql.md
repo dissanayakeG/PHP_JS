@@ -191,7 +191,7 @@ WHERE EXISTS
 ```
 ## derived tables
 
-![DerivedTables.png](./DerivedTables.png)
+![Mysql-derived-tables](./images/Mysql-derived-tables.png)
 
 ```sql
 SELECT 

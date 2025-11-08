@@ -144,7 +144,7 @@ dotnet run --launch-profile https
 
 > **Note:** If you enable HTTPS, make sure to use `https://localhost` for local API calls.
 
-##  Define the Model
+## Define the Model
 
 `Models/TodoItem.cs`
 

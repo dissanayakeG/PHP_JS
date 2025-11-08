@@ -16,6 +16,8 @@
 - Diffing Algorithm Runs - React compares the new Virtual DOM with the previous one to identify changes (DOM diffing).
 - Reconciliation and DOM Update - React updates only the parts of the actual DOM that changed, ensuring efficient rendering.
 
+![React-rendering-steps](./images/React-rendering-steps.png)
+
 ## Styling
 
 - use 3 main ways
@@ -476,7 +478,7 @@ const { userName, setUserName } = context;
 </div>
 ```
 
-![ReactContextAPI.png](./ReactContextAPI.png)
+![React-context-API](./images/React-context-API.png)
 
 ## Scaling Up with Reducer and Context
 
@@ -590,7 +592,6 @@ myRef.current.scrollIntoView();
 - So can access another component’s DOM nodes, and it can make your code fragile.
 - Avoid changing DOM nodes managed by React.
 - You can safely modify parts of the DOM that React has no reason to update.
- 
 
 ## Synchronizing with Effects
 

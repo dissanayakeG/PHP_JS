@@ -61,7 +61,7 @@ php test_xdebug.php
 
 - You should see bool(true) and Xdebug configuration information without any "already loaded" warnings.
 
- ![xdebugInEnabled.png](./xdebugInEnabled.png)
+ ![PHP-xdebug-is-enabled](./images/PHP-xdebug-is-enabled.png)
 
 ## Troubleshooting
 

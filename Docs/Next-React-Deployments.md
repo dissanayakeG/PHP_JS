@@ -210,7 +210,6 @@ It will:
 ✅ Configure Nginx as a reverse proxy  
 ✅ Secure the site with Let's Encrypt SSL  
 
-
 ### VPS Setup Script
 Save this as `setup-vps.sh` and run it on your VPS.  
 ```bash

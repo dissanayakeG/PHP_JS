@@ -54,7 +54,7 @@
   creates a copy of that value and assigns it to the variable.
   **changing a value of one variable, won't affect the other.**
 
-![stackAndHeapInJs.png](./stackAndHeapInJs.png)
+![Stack-and-heap](./images/Js-stack-and-heap.png)
 
 ## Arrays
 
@@ -167,7 +167,7 @@ console.log(person);
 console.log(obj); // This returns a ReferenceError, because function execution is completed at this level
 ```
 
-![passByValue-object.png](./passByValue-object.png) ![passByValue-object-and-change-reference.png](./passByValue-object-and-change-reference.png)
+![Pass-by-value-object](./images/Js-pass-by-value-object.png) ![Pass-by-value-object-and-change-reference](./images/Js-pass-by-value-object-and-change-reference.png)
 
 ```javascript
 const styles = { color: "red" };
@@ -284,14 +284,14 @@ Person.prototype.greet = function() {
   console.log(Person.prototype === p1.constructor.prototype); // true
 ```
 
-![protoTypeLinkage.png](./protoTypeLinkage.png)
+![ProtoType-linkage](./images/Js-protoType-linkage.png)
 
 **let person = { name: "John Doe", greet: function () { return "Hi, I'm " + this.name; } };**
 
 - The person object has a link to the anonymous object referenced by the **Object()** function. The **[[Prototype]]** represents the linkage:
 - **person** object can call any methods defined in the anonymous object referenced by the **Object.prototype** **console.log(person.toString());**
 - Since JavaScript engine cannot find it on the **person** object. Therefore, it follows the prototype chain and searches for the method in the **Object.prototype** object
-- **console.log(person.__proto__ === Object.prototype); // true**
+- `console.log(person.__proto__ === Object.prototype); // true`
 
 ## prototypal inheritance
 

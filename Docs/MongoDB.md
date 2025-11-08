@@ -2,12 +2,10 @@
 
 install mongodb and MongoDB Compose
 
-q4hu1Z6W4aLyd0gu
-
 no sql
-bson
+Bson
 fields->documents->collection->databse
-key value pir
+key value pair
 
 mongod --version
 sudo systemctl status mongod
