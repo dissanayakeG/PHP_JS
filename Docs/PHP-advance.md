@@ -1,19 +1,88 @@
 # PHP Advance
 
-# Security tips
-- to prevent derectory listning, use public and private direcotories,
-- use empty index.php in protected directories OR
-- use .htaccess file and `Options -Indexes` entry in the file
-- try to use .php extension for all the files, otherwise file can be accessed and see the data
-> ex) `http.domain.com/private/config.json`
+## How PHP works
 
-# Create a PHP Server
+1. Browser requests a URL (e.g. `https://example.com/` → server receives `GET /`).
+2. Web server (Apache, Nginx, etc.) checks what resource the request maps to.
+3. The server looks for index files defined by its configuration (e.g. `index.php`, `index.html`) — this is configurable (Apache: `DirectoryIndex`; Nginx: `index`).
+4. If the chosen file is a PHP file, the server passes it to PHP (via `mod_php`, `php-fpm`/FastCGI, or similar).
+5. PHP executes the script using the PHP engine (source → parse → compile to opcodes → execute). Modern PHP uses an opcode cache (OPcache). It does `not` directly translate PHP to raw machine code in the simple “interpret to machine code” sense.
+6. PHP produces output (HTML/JSON/etc.) and that output is returned to the web server, which sends it back to the browser.
 
-```bash
-php -S localhost:<port> -> php -S localhost:8000 # -S should be uppercase
-php -S localhost:8000 -t public
-#-t public -> Sets the document root (the folder PHP serves) to the public/ directory.
+### What happens when there is no index file
+
+- If there is no index file and the request targets a directory, the server’s behavior depends on configuration:
+    - If `directory listing (autoindex)` is enabled, the server will generate and return an HTML listing of files -  this `can` be a security issue (exposes filenames, potentially sensitive files).
+    - If directory listing is disabled, the server will typically return `403 Forbidden` or fall back to another configured action (like `index.php` rewrite rules).
+- important: another risk is misconfiguration where PHP files are `not` handled by PHP (server treats them as static files) — then the `raw PHP source` can be served, which is a critical security leak.
+
+### How to prevent directory listing / common fixes
+
+**Apache (.htaccess)**
+
+```apache
+# disable directory listing
+Options -Indexes
+
+# set preferred index files
+DirectoryIndex index.php index.html
 ```
+
+**Nginx (server block)**
+
+```nginx
+# disable autoindex
+autoindex off;
+
+# common PHP try_files config
+location / {
+  try_files $uri $uri/ /index.php?$query_string;
+}
+```
+
+### Prevent serving source if PHP handler breaks
+- Ensure PHP is properly configured (php-fpm or mod_php).
+- Keep sensitive files outside webroot or block access via server rules.
+- Use correct MIME/handler settings so `.php` is always processed, not served.
+
+### Extra security notes (don’t ignore)
+
+- Disable directory listing (`Options -Indexes` / `autoindex off`).
+- Ensure `php` is executed (not served as text) — misconfig can leak source.
+- Restrict access to config files (`.env`, `.git`, etc.) — deny or move outside web root.
+- Use least-privilege file permissions and keep backups out of webroot.
+- Consider adding an index.html placeholder if you want an explicit page instead of directory index.
+
+```php
+Browser
+   ↓
+Web Server (Apache/Nginx)
+   ↓ (detects .php)
+PHP Engine (mod_php or PHP-FPM)
+   ↓ (executes PHP)
+Output (HTML/JSON)
+   ↓
+Browser
+```
+
+🔧1. Apache with mod_php
+- PHP runs as an Apache module (mod_php).
+- Apache itself executes PHP directly within the same process.
+- The file never leaves Apache — it just calls the PHP interpreter internally.
+✅ Pros: Simple, fast for small setups.
+❌ Cons: Not efficient for high traffic or multi-user environments (tightly coupled to Apache process).
+
+⚙️ 2. PHP-FPM (FastCGI Process Manager)
+- Modern, high-performance setup used with Nginx (and sometimes Apache).
+- PHP runs as a separate background process (the “PHP-FPM” service).
+- The web server and PHP communicate using the FastCGI protocol — basically, the server says “Hey PHP, run this file and give me the result.”
+✅ Pros: Scalable, fast, and secure.
+❌ Cons: Slightly more complex setup.
+
+⚙️ 3. CGI / FastCGI (legacy)
+- Older systems used CGI — each request spawned a new PHP process.
+- That’s very slow, so FastCGI was introduced to reuse PHP worker processes.
+- Modern setups (like PHP-FPM) are advanced implementations of FastCGI.
 
 # .htaccess (hypertext access)
 
