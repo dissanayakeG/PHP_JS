@@ -104,9 +104,69 @@ $f = 'strlen';
 echo $f('Hello'); # strlen('Hello) -> 5
 ```
 
-<!-- ## Variable constructs -->
+## Variable constructs(language construct)
 
-<!-- ## Advanced Array Operations -->
+- These are built-in language constructs, not regular functions.
+- This means you cannot assign them to a variable, return them from a function, or call them dynamically
+> (e.g., $f = 'isset'; $f($var) won’t work).
+- There are 3 Variable constructs -> `isset($a1,$$a2, $a3,...)` | `empty($val)` | `is_null($val)`
+- `isset()` is a language construct, not a function.
+- `isset()` returns true if a variable is set and not null.
+- `isset()` returns true if an array element exists and is not null.
+- `isset()` returns true if a string index is valid or false otherwise.
+- `isset()` returns true if all variables are set and not null. It’ll stop evaluating once it encounters an unset variable.
+- `empty()` returns true for all of these `[false, 0, 0.0, "0", '', null, []]`
+- Use the PHP `empty()` construct to check if a variable is not set or its value is false.
+- The `is_null()` checks a value and returns true if that value is exactly null. Otherwise, it returns false.
+- The `is_null()` behaves the same as the identity operator `(===)`.
+
+## Advanced Array Operations
+- Use the PHP `array_map()` method to create a new array by applying a callback function to every element of another array.
+
+```php
+<?php
+
+$lengths = [10, 20, 30];
+// calculate areas
+$areas = array_map(
+	fn ($length) => $length * $length,
+	$lengths
+);
+print_r($areas);
+```
+- When you want to filter elements of an array, you often iterate over the elements and check whether the result array should include each element. You can do that by using `array_filter()`.
+
+```php
+<?php
+
+$numbers = [1, 2, 3, 4, 5];
+$odd_numbers = array_filter(
+	$numbers,
+	fn ($number) => $number % 2 === 1
+);
+print_r($odd_numbers);
+
+# Using callback as a method of a class
+array_filter($numbers,[**new Odd()**, 'isOdd']) //if isOdd is a public method of Odd class
+array_filter($numbers,['Odd', 'isOdd']) //if isOdd is a static method of Odd class
+array_filter($numbers,new Odd()) //if you want to pass __invoke() as the callback function
+```
+- you can pass 3rd argument as well.
+- `ARRAY_FILTER_USE_KEY` if you want to filter by `$key` from the callback funcion.
+- `ARRAY_FILTER_USE_BOTH` if you want to pass both the key and value of the element to the callback function.
+
+- Use the PHP `array_reduce()` function to reduce an array to a single value using a callback function.
+
+```php
+<?php
+
+$numbers = [10,20,30];
+$total  = array_reduce(
+    $numbers,
+    fn ($previous, $current) => $previous + $current
+);
+echo $total; // 60
+```
 
 <!-- ## Organizing PHP files -->
 
@@ -254,13 +314,11 @@ $validated = filter_input(INPUT_POST, 'email', FILTER_VALIDATE_EMAIL);
 - The trick works because your browser automatically includes cookies/session data for any site you’re logged into — even if the request didn’t come directly from you.
 
 #### 1️⃣ You’re logged into your bank
-
 - You log in at `yourbank.com`.
 - Your browser now has a session cookie (e.g. `sessionid=abc123`) that keeps you logged in.
 - So, any request sent to `yourbank.com` will automatically include that cookie — even if you didn’t type or click anything.
 
 #### 2️⃣ You visit a malicious website
-
 - You go to `malicious-site.com`.
 - That site secretly contains some HTML like this:
 
@@ -276,7 +334,6 @@ $validated = filter_input(INPUT_POST, 'email', FILTER_VALIDATE_EMAIL);
 ```
 
 #### 3️⃣ What happens next
-
 - As soon as the page loads:
     - That hidden form automatically submits a POST request to `https://yourbank.com/transfer-fund`.
     - Your browser includes your bank’s login cookie (since you’re logged in there).
@@ -284,12 +341,10 @@ $validated = filter_input(INPUT_POST, 'email', FILTER_VALIDATE_EMAIL);
     - So the bank would execute the transfer if it doesn’t have protection (CSRF defense).
 
 #### 4️⃣ Why CSRF works
-
 - It abuses the browser’s automatic cookie handling.
 - The attacker’s page never sees your cookies, but it can trigger a request that includes them.
 
 #### How websites defend against it
-
 - A secure website adds a CSRF token to every sensitive form.
 
 ```php
@@ -308,7 +363,6 @@ $_SESSION['token'] = bin2hex(random_bytes(35));
 - The malicious site can’t know or guess that token, so the forged request fails.
 
 ### PRG (Post-Redirect-Get)
-
 When a user submits a form (like a registration form or payment form):
 - The form sends data with a POST request.
 - The server processes it (e.g., inserts into DB, sends an email).
@@ -404,7 +458,57 @@ password_verify(string $password, string $hash): bool
 
 <!-- ## String operations -->
 
-<!-- ## Regular Expressions -->
+## Regular Expressions
+- PHP regular expressions are strings with pattern enclosing in delimiters for example `"/pattern/"`.
+- The `preg_match()` function searches for a match to a pattern in a string.
+- The `preg_match_all()` function searches for all matches to a pattern in a string.
+- The `preg_replace()` function searches a string for matches to a pattern and replaces them with a new string or pattern.
+- The forward-slashes are delimiters. The delimiters can be one of the following characters `~, !, @, #, $` or braces including `{}, (), [], <>`. The braces help improve regular expressions’ readability in some cases.
+- `'/\d+/' is similar to '{\d+}'`
+- Anchors`(^, $)` – match at the beginning (^) and/or end ($) of a string or line.
+    1. preg_match_all('/P/' , 'PHP', $matches) //match any 'P'
+    2. preg_match_all('/^P/' , 'PHP', $matches) //match 'P' at the begining (1st character)
+
+- Special characters must be escaped like `/\./g,  /\(/g`
+- With character classes use back slash before `d,w,s` for escape, otherwise it will match character `d,w or s`.
+- Use `\d` character class to match any single digit.
+- Use `\w` character class to match any word character.
+- Use `\s` character class to match any whitespace.
+- The `\D, \W, \S` character class are the inverse sets of `\d, \w, and \s` character class.
+- Use the dot character class `(.)` to match any character but a new line.
+
+### Common regex patterns
+
+```bash
+/				start
+/ 				end
+/g 				global
+/gi 			case insensitive
+/\d/g 			select single digit
+/\d+/g 			select one or more digits
+/\d{9}/g 		select 9 digits in a row
+/e+/g 			one or more than one e
+/a?/g 			a is optional
+/a*/g 			match 0 or more, and a is optional
+/./g 			match anything except new line
+/\. /g 			match . (dot)
+/.\./g 			match any character before .
+/\w/g 			match any word character , negative is /\W
+/\s/g 			match and white space, negative is /\S
+/\w{4}/g 		select any words with or more than 4 characters
+/\w{4,5}/g 		select any words with 4 or 5 characters
+/[fc]at/g 		words start with f or c but end with at
+/[q-z,A-Z]at/g	any character followed by “at”
+/(t|T)he/g 		match the words "the" or "The"
+/(t|e|r){2,3}/g match the word like "street" "stttreet" "strrret"
+/^I/g			select beginning with I for whole chunk
+/\.$/g 			select end of line with . for whole statements
+/\.$/gm 		select end of line with . for multiple line
+/(?<=[tT]he)./g	match very first character after the/The
+/(?<![tT]he)./g select anything that does not have the/The before
+/.(?=at)/g 		select any character followed by at
+/.(?!at)/g 		select everything that not followed by at
+```
 
 <!-- ## PHP Date & Time -->
 
@@ -721,10 +825,7 @@ $logger->log('Bye');
 <?php
 
 namespace Store\Model;
-
-class Customer
-{
-}
+class Customer{}
 
 #index.php
 <?php
