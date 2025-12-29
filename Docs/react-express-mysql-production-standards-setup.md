@@ -9,16 +9,13 @@ cd server
 pnpm init
 
 pnpm add express @types/express @types/node eslint prettier helmet cors @types/cors bcrypt @types/bcrypt jsonwebtoken @types/jsonwebtoken dotenv zod sequelize sequelize-cli mysql2 http-status-codes googleapis express-session @types/express-session 
-cookie-parser @types/cookie-parser imapflow @types/imapflow
+cookie-parser @types/cookie-parser
 
 #logging using pino
 pnpm add pino pino-pretty pino-http
 
 #rate limit
 pnpm add express-rate-limit
-
-#mail
-pnpm add mailparser @types/mailparser
 
 # auto load
 pnpm add -D tsx typescript
@@ -967,24 +964,6 @@ export default defineConfig({
 }
 ```
 
-### FINAL app.tsx
-
-```tsx
-function App() {
-  return (
-    // NuqsProvider enables type-safe URL query string state management across the app
-    <NuqsProvider>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <Toaster position="top-right" richColors />
-          <RouterProvider router={router} />
-        </AuthProvider>
-      </QueryClientProvider>
-    </NuqsProvider>
-  );
-}
-```
-
 ## SETUP REACT-QUERY
 
 ### src/lib/react-query.ts
@@ -1238,4 +1217,47 @@ const { user, logout } = useAuth();
     "format:fix": "prettier --write .",
     "preview": "vite preview"
   },
+```
+
+## SETUP NUQS-CONTEXT
+
+- NuqsProvider enables type-safe URL query string state management across the app
+
+### client/src/providers/nuqs-provider.tsx
+
+```tsx
+interface NuqsProviderProps {
+  children: React.ReactNode;
+}
+
+export function NuqsProvider({ children }: NuqsProviderProps) {
+  return <NuqsAdapter>{children}</NuqsAdapter>;
+}
+```
+
+
+### FINAL app.tsx
+
+```tsx
+import { RouterProvider } from 'react-router-dom';
+import { router } from '@/lib/routes';
+import { AuthProvider } from '@/providers/auth-context';
+import { QueryClientProvider } from '@tanstack/react-query';
+import queryClient from '@/lib/react-query';
+import { Toaster } from 'sonner';
+import { NuqsProvider } from '@/providers/nuqs-provider';
+
+//Use Toaster from sonner for toas messages
+function App() {
+  return (
+    <NuqsProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Toaster position="top-right" richColors />
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </QueryClientProvider>
+    </NuqsProvider>
+  );
+}
 ```
