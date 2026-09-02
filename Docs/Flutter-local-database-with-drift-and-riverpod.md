@@ -907,7 +907,7 @@ Categories=Utility;
 # Refresh app menu:
 update-desktop-database ~/.local/share/applications
 
-# Then search List Tracker in the Linux Mint menu.
+# Then search My App in the Linux Mint menu.
 ```
 
 # Build Android APK and Install on Physical Device
