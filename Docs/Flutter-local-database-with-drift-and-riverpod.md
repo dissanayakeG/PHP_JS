@@ -100,7 +100,7 @@ import 'tables.dart';
 
 part 'app_database.g.dart';
 
-@DriftDatabase(tables: [Categories, Entries])
+@DriftDatabase(tables: [Items])
 class AppDatabase extends _$AppDatabase {
   
   AppDatabase([QueryExecutor? executor]) : super(executor ?? driftDatabase(name: 'app_database'));
