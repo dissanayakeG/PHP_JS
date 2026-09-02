@@ -148,7 +148,7 @@ Console.WriteLine(s1); // "Hi" (strings are immutable, new object created)
 # Strings & Escaping
 
 ```csharp
-//Escape quotes
+//Escape quotes(")
 Console.WriteLine("Hello \"World\"!");
 
 //Escape backslash
