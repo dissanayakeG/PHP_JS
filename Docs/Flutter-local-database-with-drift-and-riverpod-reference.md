@@ -202,6 +202,183 @@ await _database.transaction(() async {
 });
 ```
 
+## Routing with `go_router`
+
+`go_router` provides declarative, URL-based navigation for Flutter. Keeping routes in one router configuration makes navigation easier to understand, test, and extend.
+
+### 1. Install `go_router`
+
+From the Flutter project root:
+
+```bash
+flutter pub add go_router
+```
+
+Import it where the router or navigation methods are used:
+
+```dart
+import 'package:go_router/go_router.dart';
+```
+
+### 2. Define routes
+
+Create a dedicated router file, such as `lib/app_router.dart`:
+
+```dart
+import 'package:go_router/go_router.dart';
+
+final appRouter = GoRouter(
+  routes: [
+    GoRoute(
+      path: '/',
+      builder: (context, state) => const DashboardPage(),
+    ),
+    GoRoute(
+      path: '/settings',
+      builder: (context, state) => const SettingsPage(),
+    ),
+    GoRoute(
+      path: '/items/:itemId',
+      builder: (context, state) {
+        final itemId = int.parse(state.pathParameters['itemId']!);
+        return ItemDetailPage(itemId: itemId);
+      },
+    ),
+  ],
+);
+```
+
+The `path` is the URL pattern and `builder` creates the page for that location. A path parameter starts with `:`; its value is read from `state.pathParameters`.
+
+Keep route configuration separate from page widgets. For a larger application, group related routes in the same feature area or compose them into the central router.
+
+### 3. Connect the router to the app
+
+Use `MaterialApp.router` instead of the classic `MaterialApp` constructor:
+
+```dart
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp.router(
+      title: 'My App',
+      routerConfig: appRouter,
+    );
+  }
+}
+```
+
+When using Riverpod, `ProviderScope` still wraps the application:
+
+```dart
+void main() {
+  runApp(
+    const ProviderScope(
+      child: MyApp(),
+    ),
+  );
+}
+```
+
+### 4. Navigate between routes
+
+Import `go_router` in the widget and use the `BuildContext` extensions:
+
+```dart
+// Replace the current location.
+context.go('/settings');
+
+// Push a new page onto the navigation stack.
+context.push('/items/42');
+
+// Return to the previous page.
+context.pop();
+```
+
+Use `go` when changing app location, such as moving from a dashboard to a section. Use `push` when opening a page that the user should be able to close with Back.
+
+### 5. Use path and query parameters
+
+Pass a path parameter as part of the URL:
+
+```dart
+context.push('/items/${item.id}');
+```
+
+Read it in the route builder:
+
+```dart
+final itemId = int.parse(state.pathParameters['itemId']!);
+```
+
+For optional filtering or sorting values, use query parameters:
+
+```dart
+context.go('/items?category=food');
+```
+
+Read them with:
+
+```dart
+final category = state.uri.queryParameters['category'];
+```
+
+Validate and handle invalid parameters before passing them to a page or repository.
+
+### 6. Define nested routes
+
+A child route can share a parent URL:
+
+```dart
+GoRoute(
+  path: '/items/:itemId',
+  builder: (context, state) => ItemDetailPage(
+    itemId: int.parse(state.pathParameters['itemId']!),
+  ),
+  routes: [
+    GoRoute(
+      path: 'edit',
+      builder: (context, state) => EditItemPage(
+        itemId: int.parse(state.pathParameters['itemId']!),
+      ),
+    ),
+  ],
+),
+```
+
+The child path is relative, so the full URL is `/items/:itemId/edit`.
+
+### 7. Redirect based on application state
+
+Use `redirect` for guards such as authentication or onboarding:
+
+```dart
+final appRouter = GoRouter(
+  redirect: (context, state) {
+    final signedIn = false; // Read this from app state in a real app.
+    final goingToLogin = state.matchedLocation == '/login';
+
+    if (!signedIn && !goingToLogin) return '/login';
+    if (signedIn && goingToLogin) return '/';
+    return null;
+  },
+  routes: [
+    GoRoute(
+      path: '/',
+      builder: (context, state) => const DashboardPage(),
+    ),
+    GoRoute(
+      path: '/login',
+      builder: (context, state) => const LoginPage(),
+    ),
+  ],
+);
+```
+
+Return `null` to allow navigation. In a Riverpod application, connect the router to the relevant authentication provider and refresh the router when that state changes.
+
 ## 1. Project setup
 
 Create a Flutter project:
@@ -214,7 +391,8 @@ cd my_app
 Add the packages:
 
 ```bash
-flutter pub add drift drift_flutter flutter_riverpod
+flutter pub add drift drift_flutter flutter_riverpod go_router
+
 flutter pub add --dev drift_dev build_runner sqlite3
 ```
 
