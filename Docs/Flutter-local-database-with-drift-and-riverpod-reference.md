@@ -32,6 +32,15 @@ void main() {
 
 ### 2. Define the service contract
 
+The result type communicates what happened during the export:
+
+```dart
+enum CsvExportResult {
+  saved,
+  cancelled,
+}
+```
+
 ```dart
 abstract interface class CsvExportService {
   Future<CsvExportResult> export();
