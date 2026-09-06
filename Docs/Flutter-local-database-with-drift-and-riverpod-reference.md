@@ -14,8 +14,9 @@ The UI should not contain database queries. The repository owns database access,
 
 ## How to use this guide
 
-- New to Drift, Riverpod or `go_router`? Read Part 1 first, then build the example application in Part 2.
-- Already familiar with those tools? Skip directly to Part 2.
+- Part 1 explains the Drift, Riverpod, and `go_router` patterns used throughout the guide.
+- Part 2 builds a complete example application in twelve incremental steps. Start here after Part 1, or use it as a practical reference if you already know the concepts.
+- Part 3 covers the everyday development loop, app and launcher icons, Android signing and release builds, Linux installation, web builds, and common clean-build commands.
 
 # Part 1: Core concepts
 
@@ -1054,11 +1055,11 @@ void main() {
 
 Repository tests verify database behavior without starting the whole application.
 
-## 13. Development and deployment commands
+# Part 3: Development and deployment commands
 
 Unless stated otherwise, run commands in this section from the Flutter project root.
 
-### Daily development loop
+## Daily development loop
 
 ```bash
 flutter pub get
@@ -1072,7 +1073,7 @@ Use `build_runner` after changing Drift tables, generated database code, or gene
 
 `flutter run` starts a debug build by default. Debug builds are for everyday development, hot reload, logs, breakpoints, and fast iteration. They are larger and slower to start than release builds because they include debugging and runtime support.
 
-### Choose a target device
+## Choose a target device
 
 List available targets, then pass a device ID with `-d`:
 
@@ -1095,16 +1096,17 @@ For Android devices, enable USB debugging, connect the device, unlock it, and ac
 adb devices
 ```
 
-### Add app and launcher icons for Android and Linux
+## Add app and launcher icons for Android and Linux
 
 Keep a high-resolution PNG source image in the project, for example
 `assets/icons/app_icon.png`. A PNG is the most portable source for generated
 Android launcher icons. An SVG can also be kept as a Flutter asset for a Linux
 desktop-entry icon.
 
-Add every asset that the running Flutter application or Linux desktop launcher
-must access to the `flutter` asset list. The `flutter_launcher_icons` setting
-below does **not** bundle its `image_path` automatically:
+In `pubspec.yaml`, add every asset that the running Flutter application or
+Linux desktop launcher must access to the `flutter` asset list. The
+`flutter_launcher_icons` setting below does **not** bundle its `image_path`
+automatically:
 
 ```yaml
 flutter:
@@ -1154,7 +1156,7 @@ Use the actual file extension and path that exists in the installed bundle.
 Neither shell commands nor `.desktop` entries require escaping underscores, so
 write `my_app`, not `my\_app`.
 
-### Understand Android build modes
+## Understand Android build modes
 
 Flutter has three common Android build modes:
 
@@ -1212,6 +1214,8 @@ artifact. **Release mode** describes how Flutter compiles the app; **release
 signing** describes whose identity signs the Android package. They are related,
 but they are not the same setting.
 
+## Build, sign, and distribute an Android release
+
 ### Why `flutter build apk --release` may work at first
 
 A new Flutter Android project often allows this command immediately:
@@ -1222,7 +1226,8 @@ flutter build apk --release
 
 That does not necessarily mean the APK is production-signed. Many starter projects sign the `release` build type with Android's debug keystore so developers can build and install a release-mode APK locally before creating a real upload key.
 
-In Kotlin Gradle syntax, that looks like:
+In a Kotlin DSL project, check `android/app/build.gradle.kts`. The equivalent
+release build type looks like:
 
 ```kotlin
 android {
@@ -1234,7 +1239,8 @@ android {
 }
 ```
 
-In Groovy Gradle syntax, the same idea looks like:
+In a Groovy Gradle project, check `android/app/build.gradle`. The same idea
+looks like:
 
 ```groovy
 android {
@@ -1433,6 +1439,8 @@ flutter build apk --release
 flutter build appbundle --release
 ```
 
+## Test a local Android release
+
 ### Local release testing without production keys
 
 Sometimes you want release performance locally before a production keystore exists. There are two clear ways to do that.
@@ -1513,7 +1521,7 @@ build/app/symbols/
 
 Keep these symbol files for crash decoding. They are not the same thing as a debug APK.
 
-### Install an Android APK on a physical device
+## Install an Android release on a physical device
 
 Verify that Flutter and ADB can see the device:
 
@@ -1542,9 +1550,9 @@ flutter run -d <device-id>
 
 It builds, installs, starts the app, and keeps logs attached.
 
-### Build, install, and launch a Linux release
+## Build, install, and launch a Linux release
 
-#### Build and run the release bundle
+### Build and run the release bundle
 
 ```bash
 flutter build linux --release
@@ -1553,7 +1561,7 @@ flutter build linux --release
 
 Flutter creates a runnable bundle rather than a `.deb`. The bundle is written to `build/linux/x64/release/bundle/`; replace `<app-name>` with the executable name produced by the build. Run the executable from that directory, or use the full path above. Keep the complete bundle together: the executable requires its adjacent `lib/` and `data/` directories.
 
-#### Install for all users and add a terminal command
+### Install for all users and add a terminal command
 
 To install the bundle locally for all users, replace `<app-name>` consistently with the executable name:
 
@@ -1566,7 +1574,7 @@ sudo ln -sf /opt/<app-name>/<app-name> /usr/local/bin/<app-name>
 
 This installs the bundle in `/opt/<app-name>` and makes it available as the `<app-name>` terminal command.
 
-#### Add a desktop-menu launcher
+### Add a desktop-menu launcher
 
 Create `~/.local/share/applications/<app-name>.desktop`, replacing the placeholders with the application name, display name, installed executable path, and the path to an icon asset declared in `pubspec.yaml`. The file extension must match a file that exists in the installed bundle:
 
@@ -1589,11 +1597,11 @@ update-desktop-database ~/.local/share/applications
 
 For a launcher without a system-wide installation, use the absolute path to the built executable in `Exec=` instead. That launcher will stop working if the project or build directory is moved or cleaned.
 
-#### Package for distribution
+### Package for distribution
 
 Flutter does not produce a Debian package from `flutter build linux`. Use a Linux packaging tool, such as Fastforge, when you need a distributable `.deb` (or AppImage/RPM) for Debian or Ubuntu users.
 
-### Web release build
+## Build a web release
 
 ```bash
 flutter build web --release
@@ -1601,7 +1609,7 @@ flutter build web --release
 
 Web output is written under `build/web/`.
 
-### Enable Desktop/Web Targets
+## Enable desktop and web targets
 
 Enable only the platforms required by the project:
 
@@ -1619,7 +1627,7 @@ flutter devices
 
 `flutter create --platforms=... .` adds platform files to an existing project. Review the generated files before committing them.
 
-### Common Clean Build Flow
+## Clean builds and common workflows
 
 Use this sequence when stale generated files or build artifacts cause confusing errors:
 
@@ -1633,7 +1641,7 @@ flutter test
 
 If the problem is limited to generated Drift files, try the build-runner command first; a full clean is slower and is not normally needed after every code change.
 
-### Typical Development Flow
+### Typical development flow
 
 ```text
 define or change a table
