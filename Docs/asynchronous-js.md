@@ -77,8 +77,8 @@ async function myFunc() {
 }
 ```
 
-**Any function declared with async automatically returns a Promise, even if it doesn't explicitly return one.**
-The caller of this async function can then handle its result using .then() / .catch() or async/await.
+- **Any function declared with async automatically returns a Promise, even if it doesn't explicitly return one.**
+  - The caller of this async function can then handle its result using .then() / .catch() or async/await.
 
 ```javascript
 async function fetchData() {

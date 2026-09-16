@@ -26,6 +26,7 @@ Database → Collections → Documents → Fields
 ### BSON Format
 
 MongoDB uses BSON (Binary JSON) for storing documents. BSON extends JSON with additional data types and is optimized for:
+
 - Data traversal
 - Encoding/decoding
 - Space efficiency
@@ -38,7 +39,7 @@ BSON supports data types like Date, ObjectID, Binary, etc. that aren't available
 
 #### On Ubuntu/Debian:
 
-Reference : https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/
+Reference : [https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/](https://www.mongodb.com/docs/manual/tutorial/install-mongodb-on-ubuntu/)
 
 ```bash
 # Import the MongoDB public GPG key
@@ -86,7 +87,7 @@ mongosh
 
 ### MongoDB Compass
 
-Reference : https://www.mongodb.com/docs/compass/current/install/
+Reference : [https://www.mongodb.com/docs/compass/current/install/](https://www.mongodb.com/docs/compass/current/install/)
 
 ```bash
 wget https://downloads.mongodb.com/compass/mongodb-compass_1.45.4_amd64.deb
@@ -95,6 +96,7 @@ mongodb-compass
 ```
 
 MongoDB Compass is a GUI for MongoDB that allows you to:
+
 - Visualize and explore your data
 - Run ad hoc queries
 - Perform CRUD operations
@@ -393,19 +395,12 @@ MongoDB Atlas is the cloud-hosted database service provided by MongoDB, Inc. It 
 ## Tips and Best Practices
 
 1. **Design your schema for your queries**: Unlike relational databases, MongoDB performs best when your schema design matches your access patterns.
-
 2. **Use appropriate indexing**: Create indexes for frequently queried fields, but be mindful that each index adds overhead to write operations.
-
 3. **Embed or reference**: Choose between embedding related data or using references based on your access patterns and the size/volatility of the data.
-
 4. **Limit document size**: Keep documents under the 16MB limit and consider references for larger data.
-
 5. **Use the aggregation framework**: For complex queries involving multiple operations.
-
 6. **Implement data validation**: Use JSON Schema validation to enforce document structure.
-
 7. **Monitor performance**: Use MongoDB's built-in tools to identify slow queries and optimize them.
-
 8. **Use appropriate write concern**: Balance between performance and data durability based on your application needs.
 
 ## Common MongoDB Commands Cheat Sheet
@@ -895,33 +890,27 @@ const movieSchema = new Schema({
 ### Mongoose Best Practices
 
 1. **Always handle connection errors**: Set up error listeners on the mongoose connection.
-
 2. **Use schema validation**: Define strict schemas with validation rules.
-
 3. **Use middleware wisely**: Avoid complex logic in middleware that could impact performance.
-
 4. **Lean queries for better performance**: Use `.lean()` when you only need data and not full Mongoose documents.
-   ```javascript
-   const movies = await Movie.find().lean();
-   ```
 
+  ```javascript
+  const movies = await Movie.find().lean();
+  ```
 5. **Index fields you query frequently**: Add indexes to fields used in queries.
-   ```javascript
-   movieSchema.index({ name: 1 });
-   movieSchema.index({ rating: -1, name: 1 });
-   ```
 
+  ```javascript
+  movieSchema.index({ name: 1 });
+  movieSchema.index({ rating: -1, name: 1 });
+  ```
 6. **Use projection to limit fields returned**: Only request the fields you need.
-   ```javascript
-   const movies = await Movie.find().select('name rating');
-   ```
 
+  ```javascript
+  const movies = await Movie.find().select('name rating');
+  ```
 7. **Batch operations for better performance**: Use `insertMany`, `updateMany`, or `deleteMany` for bulk operations.
-
 8. **Be careful with unbounded arrays**: Large arrays within documents can degrade performance.
-
 9. **Handle duplicate key errors**: Implement proper error handling for unique constraint violations.
-
 10. **Use transactions for complex operations**: For operations that need to be atomic across multiple documents.
 
 ## Advanced MongoDB Use Cases

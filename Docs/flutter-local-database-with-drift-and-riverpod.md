@@ -138,7 +138,13 @@ If either insert fails, Drift rolls back both inserts so the database is not lef
 
 ## Riverpod service pattern in Dart
 
-Riverpod is useful for wiring dependencies and exposing application operations to the UI. A service is a good fit when one user action coordinates a repository with another dependency, such as a file picker, API client, or notification gateway.
+Riverpod manages dependencies and state outside widgets. Providers expose values to the widget tree, while services coordinate application operations such as exporting data. Widgets read provider state and trigger actions; they do not construct repositories or contain data-access logic.
+
+Import Riverpod wherever a provider or consumer widget is declared:
+
+```dart
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+```
 
 ### 1. Wrap the app with `ProviderScope`
 
@@ -154,67 +160,129 @@ void main() {
 
 `ProviderScope` makes Riverpod providers available throughout the widget tree.
 
-### 2. Define the service contract
+### 2. Choose a provider type
 
-The result type communicates what happened during the export:
+Choose the provider from the behavior of the value it exposes, not from the widget that reads it.
 
-```dart
-enum CsvExportResult {
-  saved,
-  cancelled,
-}
-```
+| Provider | `ref.watch(...)` exposes | Use it for |
+| --- | --- | --- |
+| `Provider<T>` | `T` | Synchronous, read-only or derived values, configuration, repositories, and services. |
+| `FutureProvider<T>` | `AsyncValue<T>` | A simple asynchronous read that needs loading and error states. |
+| `StreamProvider<T>` | `AsyncValue<T>` | Live data that changes over time, such as a Drift `watch()` query. |
+| `NotifierProvider<Controller, State>` | `State` | Synchronous state changed by user actions. The first type is the controller; the second is the exposed state. |
+| `AsyncNotifierProvider<Controller, State>` | `AsyncValue<State>` | Asynchronous state that also needs methods for refresh, save, or other side effects. |
+| `StreamNotifierProvider<Controller, State>` | `AsyncValue<State>` | A stream-backed state object that also needs controller methods. |
 
-```dart
-abstract interface class CsvExportService {
-  Future<CsvExportResult> export();
-}
-```
+#### Read-only data with `Provider`
 
-The interface describes the operation without exposing its implementation. This keeps widgets independent of how the export is performed.
-
-### 3. Implement the service
+Use `Provider` for a value that Riverpod can create synchronously and that widgets should not modify directly. Configuration is a common example:
 
 ```dart
-class RepositoryCsvExportService implements CsvExportService {
-  RepositoryCsvExportService({
-    required this.repository,
+class AppConfig {
+  const AppConfig({
+    required this.defaultCurrency,
+    required this.showPrices,
   });
 
-  final ItemsRepository repository;
-
-  @override
-  Future<CsvExportResult> export() async {
-    // Read data from the repository.
-    // Encode it as CSV.
-    // Save or return the result.
-  }
+  final String defaultCurrency;
+  final bool showPrices;
 }
-```
 
-### 4. Register the service with Riverpod
-
-```dart
-final csvExportServiceProvider = Provider<CsvExportService>((ref) {
-  return RepositoryCsvExportService(
-    repository: ref.watch(itemsRepositoryProvider),
+final appConfigProvider = Provider<AppConfig>((ref) {
+  return const AppConfig(
+    defaultCurrency: 'USD',
+    showPrices: true,
   );
 });
 ```
 
-The provider exposes the service through its interface while Riverpod creates it and supplies its dependencies. `ref.watch(...)` is appropriate while declaring dependencies because the service is recreated if a dependency changes.
+#### Asynchronous and live data
 
-### 5. Use the service from a widget
+`FutureProvider` is a good fit for a simple one-time asynchronous read. `StreamProvider` is the natural choice for a Drift query that uses `watch()` and continuously emits updates.
 
 ```dart
-final result = await ref.read(csvExportServiceProvider).export();
+final itemsFutureProvider = FutureProvider<List<Item>>((ref) {
+  return ref.watch(itemsRepositoryProvider).getItems();
+});
+
+final itemsStreamProvider = StreamProvider<List<Item>>((ref) {
+  return ref.watch(itemsRepositoryProvider).watchItems();
+});
 ```
 
-Use `read` for one-time actions such as save, update, delete, import, or export. Use `watch` when the widget should rebuild when provider state changes.
+Both providers expose `AsyncValue<List<Item>>` to widgets. `AsyncValue` represents loading, data, and error states.
+
+#### Mutable state with notifiers
+
+Use a `Notifier` when state is synchronous but must change in response to user actions. Use an `AsyncNotifier` when its initial value or its actions are asynchronous.
 
 ```dart
-ref.read(provider);   // obtain the current value for an action
-ref.watch(provider);  // listen and rebuild when it changes
+class ItemFilterController extends Notifier<String> {
+  @override
+  /// Riverpod calls build() when it creates or rebuilds this controller.
+  /// Return the initial synchronous state exposed by itemFilterProvider.
+  String build() => '';
+
+  void update(String value) => state = value;
+  void clear() => state = '';
+}
+
+final itemFilterProvider =
+    NotifierProvider<ItemFilterController, String>(ItemFilterController.new);
+
+class ItemsController extends AsyncNotifier<List<Item>> {
+  @override
+  Future<List<Item>> build() {
+    /// Riverpod calls build() when it creates or rebuilds this controller.
+    /// Returning a Future makes the provider asynchronous: it exposes loading,
+    /// then data or an error after the repository request completes.
+    return ref.watch(itemsRepositoryProvider).getItems();
+  }
+
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => ref.read(itemsRepositoryProvider).getItems(),
+    );
+  }
+}
+
+final itemsControllerProvider =
+    AsyncNotifierProvider<ItemsController, List<Item>>(ItemsController.new);
+```
+
+`ItemFilterController` extends `Notifier<String>`, so it owns a `String` state. Its `build()` method initializes that state; the empty string means that no filter is active initially. `NotifierProvider<ItemFilterController, String>` exposes the current `String` state. Read `itemFilterProvider.notifier` when an action needs the `ItemFilterController`.
+
+`ItemsController` extends `AsyncNotifier<List<Item>>`. Its asynchronous `build()` loads the initial list, so `AsyncNotifierProvider` exposes `AsyncValue<List<Item>>`: `AsyncLoading` while the request runs, `AsyncData` when it succeeds, or `AsyncError` when it fails.
+
+`StreamNotifierProvider` is the stream equivalent of `AsyncNotifierProvider`: choose it when a stream-backed value also needs controller methods. Otherwise, the simpler `StreamProvider` is enough.
+
+### 3. Read providers from a widget
+
+Use `ref.watch` in `build` to rebuild a widget when a value changes. Use `ref.read` inside callbacks to run an action without subscribing the callback to updates.
+
+```dart
+import 'package:flutter/material.dart';
+
+class ItemsPage extends ConsumerWidget {
+  const ItemsPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final items = ref.watch(itemsStreamProvider);
+    final filter = ref.watch(itemFilterProvider);
+
+    return items.when(
+      data: (value) => Text('${value.length} items; filter: $filter'),
+      loading: () => const CircularProgressIndicator(),
+      error: (error, stackTrace) => Text('Error: $error'),
+    );
+  }
+}
+
+void clearFilter(WidgetRef ref) {
+  ref.read(itemFilterProvider.notifier).clear();
+}
 ```
 
 ## Routing with `go_router`

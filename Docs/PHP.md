@@ -25,7 +25,13 @@ php -S localhost:8000 -t public
 5. If no index file exists and directory listing is enabled, the server returns a file listing (a security risk).
 6. Use server config (e.g. `Options -Indexes` in Apache or `autoindex off` in Nginx) to prevent directory listings.
 
-<!-- ## PHP Fundamentals -->
+## PHP Fundamentals
+
+### echo, print_r vs var_dump
+
+- `echo` only print strings/numbers, return value is void
+- `print_r` can print arrays and objects, return value is true or string, result is human-readable
+- `var_dump` support all data types (strings, integers, floats, arrays, objects, booleans, NULL, etc), return value is void, result has more details (type, length...)
 
 ## PHP Types
 
@@ -170,7 +176,94 @@ echo $total; // 60
 
 <!-- ## Organizing PHP files -->
 
-<!-- ## State Management -->
+## State Management
+
+### cookie
+
+- The web works based on the HTTP protocol. The HTTP protocol is `stateless`.
+- Stateless means each request is `independent` and the server doesn’t automatically remember previous interactions.
+- Cookies help solve this problem by allowing servers to store small pieces of data on the client (browser).
+- A cookie is a small data record that the server sends to the browser, usually via the Set-Cookie response header.
+- The browser stores this cookie and automatically includes it in `subsequent requests` to the `same server` using the Cookie request header.
+- The browser will only send cookies to the same domain, path, and protocol (based on the cookie’s attributes like `domain`, `path`, `secure`, and `samesite`).
+- Usually cookie used for enhance the user experience
+  - `Session management:` to remember users and their login information
+  - `Personalization:` store user’s preferences, themes, and other settings.
+  - `Tracking:` cookies store user behavior.
+- Use the PHP `setcookie()` function to set a cookie sent along with an HTTP header from the web server to the web browser.
+- Use the superglobal variable `$_COOKIE` to access the cookies in PHP.
+
+```php
+# Setting a cookie
+setcookie ( 
+    string $name , 
+    string $value = "" , 
+    array $options = [] //expires, path, domain, secure, httponly and samesite
+    ) : bool
+
+setcookie('name','value',
+          [	
+            'expires' => time() + 7 * 86400,  // 7 days from now,
+          	'path' => '/',
+        	'secure' => true,
+        	'httponly' => true,
+        	'samesite' => 'Lax'
+          ]);
+
+# samesite can take a value of None, Lax, or Strict
+# if $secure is set to true , the cookie should be transmitted over a secured HTTP (HTTPS) connection from the web browser.
+# if $httponly is true, the cookie can be accessed only via the HTTP protocol, not JavaScript.
+
+# Reading a cookie
+    if (isset($_COOKIE['cookie_name'])) {...)
+# Deleting a cookie
+    unset($_COOKIE['cookie_name']);
+	setcookie('cookie_name', null, time()-3600); //can be deleted by setting a past date as the expiry date
+```
+
+### Session
+
+- HTTP is `stateless`, so to persist user-specific data across multiple requests, web applications use sessions.
+- A session is managed by the application layer (e.g., `PHP`) , not by `Apache` or `Nginx`.
+- Unlike cookies, you can store any data in the session.
+- PHP allows you to work with `multiple sessions` with different names on the same script.
+- When the `ession_start()` runs at the first time, PHP generates a unique session id and passes it to the web browser in the form of a cookie named `PHPSESSID` (usually `Set-Cookie: PHPSESSID=xyz`).
+- If a session already exists, PHP checks the `PHPSESSID` cookie sent by the browser, the `session_start()` function will resume the existing session instead of creating a new one.
+- Since PHP sends the `PHPSESSID` cookie in the header of the HTTP response, you need to call the `session_start()` function before any statement that outputs the content to the web browser.
+- Otherwise, you will get a warning message saying the header cannot be modified because it is already sent. This is a well-known error message in PHP.
+
+```php
+<?php
+
+# get session data stored location
+# /tmp folder of the web server
+echo ini_get('session.save_path'); //OR
+echo session_save_path();
+
+# store values
+// store scalar value
+$_SESSION['user'] = 'admin';
+// store an array
+$_SESSION['roles'] = ['administrator', 'approver', 'editor'];
+
+# deleting session values
+session_destroy();
+
+# This  session_destroy() deletes all data associated with the current session. However, it does not unset data in the  $_SESSION array and cookie.
+
+# To completely destroy the session data, you need to unset the variable in  $_SESSION array and remove the PHPSESSID cookie like this:
+
+// remove cookie
+if(isset($_COOKIE[session_name()])){
+    setcookie(session_name(),'',time() - 3600, '/');
+}
+
+// unset data in $_SESSION
+$_SESSION[] = array();
+
+// destroy the session
+session_destroy();
+```
 
 ## Processing Forms
 
@@ -235,6 +328,8 @@ Escape
 
 ### filter_var() for sanitize and validate data
 
+- Works on variables already in memory, not directly from the request. -> (user defined variables, superglobals like `$_GET('val')`)
+
 ```php
 //filter_var ( mixed $value , int $filter = FILTER_DEFAULT , array|int $options = 0 ) : mixed
 
@@ -287,7 +382,7 @@ if (null !== $term_html) {
 ### filter_input vs. filter_var
 
 - `filter_input` Validate and sanitize inputs like `POST request`. -> `INPUT_GET` and `INPUT_POST`
-- `filter_var` Validate and sanitize a variable you already have in memory. -> `Any local variable`
+- `filter_var` Validate and sanitize a variable you already have in memory. -> `Any local variable including superglobals`
 - you just can `$input = $_POST['email']`, if you want to use` filter_var`, instead of `filter_input`
 
 ```php
@@ -452,9 +547,234 @@ password_verify(string $password, string $hash): bool
 
 <!-- ## Login System -->
 
-<!-- ## Working with Files -->
+## Working with Files
 
-<!-- ## Working with Directories -->
+```php
+$f = fopen($filename, 'r'); //open the readme.txt for reading.
+fclose($f); //close the file
+
+if(file_exists($filename)){...}
+# check if the file readme.txt exists in the current directory:
+# $filename can be also a path to a directory. In this case, the file_exists() function returns true if the directory exists.
+
+if (is_file($filename)) {...}
+# check if a path is a file (not a directory) and exists
+
+if (is_readable($filename)) {...}
+# check if a file exists and readable
+
+if (is_writable($filename)) {...}
+# check if a file exists and writable
+```
+
+- Use the `fread(resource $stream , int $length)` function to read some or all contents from a file.
+- Use the `fgets(resource $handle , int $length = ?)` function to read a line from a file.
+- Use the `feof()` function to test the end-of-file has been reached.
+- Use the `filesize()` function to get the size of the file.
+- Use the PHP `file_get_contents()` function to read a file into a string.
+- `file_get_contents()` function is a shortcut for opening a file, reading the whole file’s contents into a `string`, and close it.
+
+```php
+$content = file_get_contents(
+	$filename = $filename,
+    $use_include_path = false , 
+    $context = null ,
+	$offset = 5,
+	$maxlen = 20
+);
+```
+
+- Use the PHP `file()` to read the contents of a `local or remote` file into an `array`. Each line of the file will be an element of the array.
+
+```php
+<?php
+
+$lines = file(
+    'https://www.php.net/robots.txt',
+    FILE_SKIP_EMPTY_LINES | FILE_IGNORE_NEW_LINES
+);
+//FILE_USE_INCLUDE_PATH -> Search for the file in the include path.
+//FILE_IGNORE_NEW_LINES -> Skip the newline at the end of the array element.
+//FILE_SKIP_EMPTY_LINES -> Skip empty lines in the file.
+
+# If your system or network uses a proxy server (for internet access control, filtering, or security), direct connections to external URLs (like php.net) may be blocked.
+# use stream_context_create() function in such cases
+```
+
+- The `readfile()` function reads data from a file and writes it to the output buffer.
+- We can use `readfile()` to download a file.
+- Use the PHP `copy($source,$dest,$context=?)` file function to copy a file from a location to another.
+- The `copy()` function overwrites the destination file if it exists.
+- Use PHP `unlink($filename,  $context=?)` function to delete a file.
+- Use the PHP `rename($oldname,$newname,$context = ?)` file function to rename a file.
+
+### CSV (comma-separated values)
+
+#### Writing to a CSV file
+
+- Use the fputcsv() function to write a row to a CSV file.
+
+```php
+fputcsv ( resource $handle , array $fields , string $delimiter = "," , string $enclosure = '"' , string $escape_char = "\\" ) : int|false
+
+# ex
+<?php
+
+$data = [
+	['Symbol', 'Company', 'Price'],
+	['GOOG', 'Google Inc.', '800'],
+];
+
+$filename = 'stock.csv';
+$f = fopen($filename, 'w');// open csv file for writing
+
+if ($f === false) {
+	die('Error opening the file ' . $filename);
+}
+
+// write each row at a time to a file
+foreach ($data as $row) {
+	fputcsv($f, $row);
+}
+fclose($f);// close the file
+```
+
+#### Reading from a CSV file
+
+- Use the fgetcsv() function to read a row from a CSV file.
+
+```php
+fgetcsv ( resource $stream , int $length = 0 , string $separator = "," , string $enclosure = '"' , string $escape = "\\" ) : array
+
+# ex
+<?php
+
+$filename = './stock.csv';
+$data = [];
+
+// open the file
+$f = fopen($filename, 'r');
+
+if ($f === false) {
+	die('Cannot open the file ' . $filename);
+}
+
+// read each line in CSV file at a time
+while (($row = fgetcsv($f)) !== false) {
+	$data[] = $row;
+}
+
+// close the file
+fclose($f);
+```
+
+- Use the PHP `filesize($filename)` function to get the size of a file in bytes.
+- Use the `is_readable()`, `is_writable()`, `is_executable()` to check if a file exists and readable, writable, and executable.
+- Use the `chmod()` function to set permissions for a file.
+
+```php
+<?php
+
+#get the permissions set on a particular file
+$permissions = fileperms('readme.txt');
+
+# changing file permission
+$filename = './readme.txt';
+chmod($filename, 0644);
+```
+
+## Working with Directories
+
+```php
+<?php
+# Use the opendir() function to open a directory and get the directory handle
+$dh = opendir('./public');
+
+# Use the readdir() function to read the entries in a directory specified by a directory handle.
+if ($dh) {
+	while ($e = readdir($dh)) {
+		if ($e !== '.' && $e !== '..') {
+			echo $e , PHP_EOL;
+		}
+	}
+}
+
+# Use getcwd() to get the current directory
+echo getcwd();
+
+# Use chdir() to change the current directory
+chdir('./dev');
+echo getcwd(); //dev
+
+# Use the mkdir() function to create a new directory.
+mkdir('./public/img')) //parent directory public must exist.
+mkdir($dir, 0644); //can pass permissions, default is 0777, or ou can use chmod() function to change it
+
+# Use the rmdir() function to remove a directory.
+rmdir('./public/assets'); //need to have sufficient permissions && the directory needs to be empty
+
+# Use the is_dir() function to check if a path is a directory and that directory exists in the file system.
+is_dir('./public')
+
+# Use the closedir() function once you are done with the directory.
+closedir($dh);
+```
+
+- Use the PHP `glob()` function to get a list of files and directories that match a pattern.
+
+```php
+//Using the PHP glob() function to calculate the total size of PHP files
+echo array_sum(array_map('filesize', glob('./src/*.php')));
+```
+
+- Use the PHP dirname() function to get the parent directory’s path of a file or directory path.
+
+```php
+<?php
+
+echo '1.' , dirname("/htdocs/public") , PHP_EOL; 	#1./htdocs
+echo '2.' , dirname("/htdocs/") , PHP_EOL; 			# 2.\
+echo '3.' , dirname(".") , PHP_EOL; 				# 3..
+echo '4.' , dirname("C:\\") , PHP_EOL; 				# 4.C:\
+echo '5.' , dirname("/htdocs/public/css/dev", 2); 	# 5./htdocs/public
+```
+
+- Use the PHP basename() fuction to get the trailing name component of a file or directory path.
+
+```php
+<?php
+
+echo "1) ".basename("/htdocs/index.php", ".php").PHP_EOL; 	# 1) index
+echo "2) ".basename("/htdocs/index.php").PHP_EOL; 			#2) index.php
+echo "3) ".basename("/htdocs/public").PHP_EOL; 				# 3) public
+echo "4) ".basename("/htdocs/").PHP_EOL; 					# 4) htdocs
+echo "5) ".basename(".").PHP_EOL; 							# 5) .
+echo "6) ".basename("/"); 									# 6)
+```
+
+- Use the PHP pathinfo() function to get the components of a file path including dirname, basename, filename, and extesion.
+
+```php
+<?php
+
+$path = 'htdocs/phptutorial/index.php';
+$parts = pathinfo($path);
+print_r($parts);
+#result
+Array
+(
+    [dirname] => htdocs/phptutorial
+    [basename] => index.php
+    [extension] => php
+    [filename] => index
+)
+
+pathinfo($path, PATHINFO_BASENAME); //index.php
+//PATHINFO_DIRNAME -> Return the directory name
+//PATHINFO_BASENAME -> Return the base name
+//PATHINFO_EXTENSION -> Return the file extension
+//PATHINFO_FILENAME -> Return the file name (without the extension)
+```
 
 <!-- ## String operations -->
 
@@ -488,8 +808,10 @@ password_verify(string $password, string $hash): bool
 /\d+/g 			select one or more digits
 /\d{9}/g 		select 9 digits in a row
 /e+/g 			one or more than one e
-/a?/g 			a is optional
+/a?/g 			a is optional | match a zero or one time.
 /a*/g 			match 0 or more, and a is optional
+/\d{n,}/        match at least n times
+/\d{n,m}/       match Between n and m Times
 /./g 			match anything except new line
 /\. /g 			match . (dot)
 /.\./g 			match any character before .
@@ -501,6 +823,10 @@ password_verify(string $password, string $hash): bool
 /[q-z,A-Z]at/g	any character followed by “at”
 /(t|T)he/g 		match the words "the" or "The"
 /(t|e|r){2,3}/g match the word like "street" "stttreet" "strrret"
+/A(?=B)/        matches A only if followed by B
+/A(?!B)/        matches A only if not followed by B
+(?<!B)A         matches A only if there’s B before it
+(?<!B)A         matches A only if there’s no B before it
 /^I/g			select beginning with I for whole chunk
 /\.$/g 			select end of line with . for whole statements
 /\.$/gm 		select end of line with . for multiple line
@@ -510,7 +836,73 @@ password_verify(string $password, string $hash): bool
 /.(?!at)/g 		select everything that not followed by at
 ```
 
-<!-- ## PHP Date & Time -->
+### capturing groups and give names from groups
+
+```php
+<?php
+
+$uri = 'posts/25';
+$pattern = '{(\w+)/(\d+)}';
+
+if (preg_match($pattern, $uri, $matches)) {
+    print_r($matches);
+}
+
+# give names for groups using ?<name>
+$uri = 'posts/25';
+$pattern = '{(?<controller>\w+)/(?<id>\d+)}';
+
+if (preg_match($pattern, $uri, $matches)) {
+    print_r($matches);
+}
+# capturing groups has a number -> 1,2, they can access later by $1, $2
+```
+
+## PHP Date & Time
+
+- Computers store a date and time as a UNIX timestamp or a timestamp in short.
+- A timestamp is an integer that refers to the number of seconds between 1970-01-01 00:00:00 UTC (Epoch) and the date and time to be stored.
+- Use the time() function to return the current timestamp since Epoch in local timezone.
+- Use the date_default_timezone_set() function to set a specific timezone.
+- Use the date() function to format the timestamp.
+- Use mktime() function to create a timestasmp based on the year, month, day, hour, minute, and second.
+
+```php
+<?php
+
+$current_time = time();
+echo date('Y-m-d g:ia', $current_time) . '<br>'; #2021-07-13 5:47am
+
+# adding timestamp
+$one_week_later =  $current_time + 7 * 24 * 60 * 60; // 7 days later
+echo date('Y-m-d g:ia',$one_week_later);
+
+# subtracting timestamp
+$yesterday = $current_time -  24 * 60 * 60; //1 day ago
+echo date('Y-m-d g:ia',$yesterday);
+
+# mktime
+mktime(
+    int $hour,
+    int|null $minute = null,
+    int|null $second = null,
+    int|null $month = null,
+    int|null $day = null,
+    int|null $year = null
+): int|false
+```
+
+### date() function
+
+- Use the PHP date() function to format a timestamp in a specified format.
+
+```php
+<?php
+
+echo date('Y'); //2025
+$created_at = date("Y-m-d H:i:s");
+echo $created_at;//2021-07-14 13:03:08 -> usefull for store in Mysql DB
+```
 
 # OOP with PHP
 
