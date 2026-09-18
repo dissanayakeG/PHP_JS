@@ -1,745 +1,478 @@
-- Setting up a VPS to host a React + Next.js project with security in mind requires several steps. Below is a step-by-step guide:
+# Securely deploy a Next.js app on an Ubuntu/Debian VPS
 
-# Setup the VPS
+This guide deploys a server-rendered Next.js application behind Nginx, runs it with PM2, and obtains a Let's Encrypt certificate. It assumes a fresh Ubuntu or Debian VPS, a domain you control, and a Git repository that contains `build` and `start` scripts (normally `next build` and `next start`).
 
-1. Use SSH to connect:
+> Keep your current root SSH session open until you have successfully signed in as the new user with an SSH key. Otherwise, a mistake in SSH configuration can lock you out of the server.
+
+Replace these values throughout:
+
+- `deploy` — the non-root Linux user that will own and run the app.
+- `example.com` — your domain.
+- `my-next-app` — the app and PM2 process name.
+- `https://github.com/your-account/your-repository.git` — your repository URL.
+
+## 1. Connect and update the VPS
+
+Connect using the credentials supplied by your VPS provider:
+
 ```bash
 ssh root@your-server-ip
 ```
-If using an SSH key:
+
+On the first connection, verify the SSH host-key fingerprint against the one shown in your VPS provider's console before accepting it. This prevents accepting an unexpected server.
+
+Update the server, then reboot if the update requests it:
+
 ```bash
-ssh -i /path/to/private-key root@your-server-ip
+apt update
+apt upgrade -y
+reboot
 ```
 
-2. Update System Packages
+Reconnect after the reboot.
+
+## 2. Create a non-root deployment user and configure SSH keys
+
+Create the account and grant it administrative access:
+
 ```bash
-sudo apt update && sudo apt upgrade -y
+adduser deploy
+usermod -aG sudo deploy
 ```
 
-3. Create a New User (Non-root)
-For security, create a new user and assign sudo privileges:
+On your **local computer**, create a key if you do not already have one:
+
 ```bash
-adduser myuser
-usermod -aG sudo myuser
-```
-Switch to the new user:
-```bash
-su - myuser
+ssh-keygen -t ed25519 -C "your-email@example.com"
 ```
 
-4. Set Up a Firewall (UFW)
+Copy its public key to the VPS (use the provider's initial authentication method if password login is not available):
+
+```bash
+ssh-copy-id deploy@your-server-ip
+```
+
+Open a **second terminal** and confirm that key-based login and sudo work before changing SSH settings:
+
+```bash
+ssh deploy@your-server-ip
+sudo -v
+```
+
+## 3. Configure the firewall and harden SSH
+
+Allow SSH first, then enable the firewall. If you use a non-default SSH port, allow that port instead of `OpenSSH`.
+
 ```bash
 sudo ufw allow OpenSSH
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw enable
+sudo ufw status verbose
 ```
 
-5. Disable Root Login & Password Authentication
-Edit SSH config:
+Create a separate SSH configuration drop-in rather than editing the packaged file:
+
 ```bash
-sudo nano /etc/ssh/sshd_config
+sudo nano /etc/ssh/sshd_config.d/99-hardening.conf
 ```
-Change:
-```plaintext
+
+Add the following only after confirming the new user's SSH key works:
+
+```text
 PermitRootLogin no
 PasswordAuthentication no
-```
-Restart SSH:
-```bash
-sudo systemctl restart sshd
-or
-sudo systemctl start ssh
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
 ```
 
-6. Install Node.js & Dependencies
-Install Node.js (LTS)
+Validate the configuration, then reload the SSH service. Do not close your working sessions until you have tested another login.
+
 ```bash
-curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo bash -
+sudo sshd -t
+sudo systemctl reload ssh
+```
+
+Optional but recommended: enable automatic security updates.
+
+```bash
+sudo apt install -y unattended-upgrades
+sudo dpkg-reconfigure --priority=low unattended-upgrades
+```
+
+## 4. Install system packages, Node.js, and PM2
+
+Log in as the deployment user, then install the required packages:
+
+```bash
+ssh deploy@your-server-ip
+sudo apt update
+sudo apt install -y ca-certificates curl git build-essential nginx
+```
+
+Install the current Node.js LTS release. The following uses NodeSource's LTS channel; inspect its script before running it if your organisation requires reviewed package sources.
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_lts.x -o /tmp/nodesource_setup.sh
+less /tmp/nodesource_setup.sh
+sudo -E bash /tmp/nodesource_setup.sh
 sudo apt install -y nodejs
-```
-Verify installation:
-```bash
-node -v
-npm -v
+node --version
+npm --version
 ```
 
-7. Install PM2 for Process Management
+Ensure the installed version satisfies the `engines` field in your project's `package.json`. Install PM2 once, using the same Node.js installation that will run the app:
+
 ```bash
 sudo npm install -g pm2
+pm2 --version
 ```
 
-8. Set Up Next.js App
+## 5. Clone, configure, build, and start the app
 
-   ```bash
-   cd /var/www/
-   git clone https://github.com/your-username/your-nextjs-app.git
-   cd your-nextjs-app
-   npm install
-   npm run build
-   # Start the app with PM2
-   pm2 stop all
-   pm2 delete all
-   pm2 kill #Kill the PM2 Daemon
-   
-   pm2 start npm --name "app-name" -- start
-   pm2 save
-   pm2 startup
+Create an application directory owned by the deployment user, then clone the repository:
 
-   pm2 restart app-name
-   ```
-   
-9. Set Up Reverse Proxy with Nginx
-**Install Nginx**
 ```bash
-sudo apt install nginx -y
+sudo mkdir -p /var/www
+sudo chown deploy:deploy /var/www
+cd /var/www
+git clone https://github.com/your-account/your-repository.git my-next-app
+cd /var/www/my-next-app
 ```
 
-**Create an Nginx Config for Next.js**
+Create the production environment file required by your application. Never commit credentials or copy a development `.env` file containing local values. Variables beginning with `NEXT_PUBLIC_` are embedded in the browser bundle and must not contain secrets.
+
 ```bash
-sudo nano /etc/nginx/sites-available/nextjs
+nano .env.production
+chmod 600 .env.production
 ```
-Add the following configuration:
+
+Install exactly the dependency versions captured in the lock file, build, and start the production server on loopback only:
+
+```bash
+npm ci
+npm run build
+PORT=3000 pm2 start npm --name my-next-app -- start -- -H 127.0.0.1
+pm2 status
+curl -I http://127.0.0.1:3000
+```
+
+Configure PM2 to restore this user's process list at boot. `pm2 startup` prints a `sudo ...` command; copy and run the exact command it displays, then save the process list.
+
+```bash
+pm2 startup
+pm2 save
+```
+
+Do not use `pm2 stop all`, `pm2 delete all`, or `pm2 kill` as part of normal deployment: those commands also affect any other applications owned by this user.
+
+## 6. Configure Nginx as the reverse proxy
+
+Create the virtual-host configuration:
+
+```bash
+sudo nano /etc/nginx/sites-available/example.com
+```
+
+Paste this configuration, replacing `example.com` with your domain. It proxies to the local-only Next.js process, preserves the original host and client IP, and supports WebSocket upgrades.
+
 ```nginx
 server {
     listen 80;
-    server_name <YOURDOMAIN>.com;
+    listen [::]:80;
+    server_name example.com www.example.com;
+
+    client_max_body_size 10m;
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
     }
 }
 ```
-**Enable the Configuration**
+
+Enable the site, remove the default site if it is still enabled, and validate before reloading Nginx:
+
 ```bash
-sudo ln -s /etc/nginx/sites-available/<YOURDOMAIN>.com /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/example.com /etc/nginx/sites-enabled/example.com
+sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t
-sudo systemctl restart nginx
-```
-
-10. Secure with SSL (Let's Encrypt)
-**Install Certbot**
-   ```bash
-   sudo apt install certbot python3-certbot-nginx -y
-   ping <YOURDOMAIN>.com //Ensure Domain is Pointing to Your Server
-   sudo ufw allow 'Nginx Full' //Allow HTTP/HTTPS Traffic Through Your Firewall
-   //Make sure that your firewall allows HTTP (port 80) and HTTPS (port 443) traffic. For example, if you're using UFW:
-   ```
-**Get an SSL Certificate**
-   ```bash
-   sudo certbot --nginx -d <YOURDOMAIN>.com -d www.<YOURDOMAIN>.com
-   ```
-**Auto-Renew SSL**
-   ```bash
-   sudo certbot renew --dry-run
-   ```
-
-11. Set Up Automatic Deployment (Optional)
-
-**Install & Configure Git Hooks**
-On VPS, go to your project directory
-   ```bash
-   cd ~/your-nextjs-app
-   ```
-Pull the latest changes automatically
-   ```bash
-   git pull origin main
-   npm install
-   npm run build
-   pm2 restart next-app
-   ```
-
-**Automate Deployment with GitHub Actions or Webhooks**
-- Set up a GitHub Actions workflow or a webhook to trigger `git pull` and `pm2 restart` on new commits.
-
-12. Additional Security Measures
-
-**Fail2Ban (Brute-force Protection)**
-```bash
-sudo apt install fail2ban -y
-```
-Enable it:
-```bash
-sudo systemctl enable fail2ban
-sudo systemctl start fail2ban
-```
-
-13. Disable Unused Services
-```bash
-sudo systemctl disable apache2
-```
-
-14. Monitor System Logs
-```bash
-sudo journalctl -u nginx --follow
-sudo journalctl -u pm2-next-app --follow
-```
-
-15. Monitoring & Maintenance
-- Use htop to monitor resource usage:
-  ```bash
-  sudo apt install htop -y
-  htop
-  ```
-- Check logs:
-  ```bash
-  sudo tail -f /var/log/nginx/error.log
-  ```
-- Restart services if needed:
-  ```bash
-  sudo systemctl restart nginx
-  pm2 restart next-app
-  ```
-
-✅ Done! Your Next.js app is now securely hosted on a VPS.
-
-# Bash script to automate the VPS setup
-
-Bash script to automate the VPS setup for hosting a Next.js app securely. 🚀  
-
-It will:  
-✅ Create a new user  
-✅ Install Node.js, PM2, and Nginx  
-✅ Set up a firewall (UFW) and SSH security  
-✅ Deploy your Next.js app  
-✅ Configure Nginx as a reverse proxy  
-✅ Secure the site with Let's Encrypt SSL  
-
-### VPS Setup Script
-Save this as `setup-vps.sh` and run it on your VPS.  
-```bash
-#!/bin/bash
-
-# Variables (Modify these)
-USERNAME="deployuser"
-APP_NAME="next-app"
-GIT_REPO="https://github.com/your-username/your-nextjs-app.git"
-DOMAIN="<YOURDOMAIN>.com"
-EMAIL="your-email@example.com"
-
-echo "🚀 VPS Setup for Next.js App 🚀"
-
-# Step 1: Update System
-echo "🔄 Updating system..."
-sudo apt update && sudo apt upgrade -y
-
-# Step 2: Create a New User
-echo "👤 Creating new user: $USERNAME"
-sudo adduser --gecos "" $USERNAME
-sudo usermod -aG sudo $USERNAME
-
-# Step 3: Secure SSH
-echo "🔐 Securing SSH..."
-sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-sudo systemctl restart sshd
-
-# Step 4: Install Dependencies
-echo "📦 Installing required packages..."
-sudo apt install -y curl git ufw nginx certbot python3-certbot-nginx fail2ban
-
-# Step 5: Set Up Firewall
-echo "🛡️ Configuring firewall..."
-sudo ufw allow OpenSSH
-sudo ufw allow 'Nginx Full'
-sudo ufw --force enable
-
-# Step 6: Install Node.js & PM2
-echo "⚙️ Installing Node.js & PM2..."
-curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo bash -
-sudo apt install -y nodejs
-sudo npm install -g pm2
-
-# Step 7: Clone and Set Up Next.js App
-echo "📁 Cloning Next.js app..."
-sudo -u $USERNAME git clone $GIT_REPO /home/$USERNAME/$APP_NAME
-cd /home/$USERNAME/$APP_NAME
-sudo -u $USERNAME npm install
-sudo -u $USERNAME npm run build
-
-# Step 8: Start the App with PM2
-echo "🚀 Starting Next.js app with PM2..."
-pm2 start npm --name "$APP_NAME" -- start
-pm2 save
-pm2 startup
-
-# Step 9: Configure Nginx
-echo "🌐 Setting up Nginx reverse proxy..."
-NGINX_CONFIG="/etc/nginx/sites-available/$APP_NAME"
-sudo tee $NGINX_CONFIG > /dev/null <<EOF
-server {
-    listen 80;
-    server_name $DOMAIN www.$DOMAIN;
-
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_cache_bypass \$http_upgrade;
-    }
-}
-EOF
-
-sudo ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-
-# Step 10: Secure with SSL
-echo "🔒 Installing SSL Certificate..."
-sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN --email $EMAIL --non-interactive --agree-tos
 sudo systemctl reload nginx
-
-# Step 11: Enable Auto Renewal for SSL
-echo "🔄 Setting up auto-renew for SSL..."
-echo "0 3 * * * root certbot renew --quiet" | sudo tee -a /etc/crontab > /dev/null
-
-# Step 12: Set Up Fail2Ban for Security
-echo "🛡️ Configuring Fail2Ban..."
-sudo systemctl enable fail2ban
-sudo systemctl start fail2ban
-
-echo "🎉 VPS setup complete! Your Next.js app is live at https://$DOMAIN"
 ```
 
-### How to Run This Script
-1. Upload to VPS
-   ```bash
-   nano setup-vps.sh
-   ```
-- Paste the script, then press `CTRL + X`, then `Y`, then `ENTER` to save.
+Before requesting a certificate, create DNS `A` (and, if applicable, `AAAA`) records for `example.com` and `www.example.com` pointing to this VPS. Wait for DNS propagation, then check that the site responds on HTTP:
 
-2. Make It Executable
-   ```bash
-   chmod +x setup-vps.sh
-   ```
-
-3. Run It
-   ```bash
-   sudo ./setup-vps.sh
-   ```
-
-# From where should i set SSL certificate?
-
-The best place to set up your SSL certificate depends on your setup and security preferences. Here’s a breakdown of your options:
-
-## Option 1: Use Cloudflare's SSL (Recommended)
-✅ Best for: Simplicity, no need to install SSL on your VPS
-
-### Steps:
-1. Go to Cloudflare Dashboard → Select your domain.
-2. Click on "SSL/TLS" from the left sidebar.
-3. Select SSL Mode:
-- "Full (strict)" → If your VPS already has an SSL certificate installed.
-- "Full" → If your VPS doesn’t have a valid SSL certificate.
-- "Flexible" → If your VPS has no SSL and you only want encryption between the browser and Cloudflare (not recommended for sensitive data).
-4. Enable "Always Use HTTPS" under the "Edge Certificates" tab.
-
-🚀 Pros:
-- No need to install an SSL certificate on your VPS.
-- Automatic renewal, no manual work required.
-- Works instantly.
-
-❌ Cons:
-- "Flexible" mode can cause redirect loops.
-- If Cloudflare is down, your site might be inaccessible over HTTPS.
-
-## Option 2: Use a Free Let’s Encrypt SSL on Your VPS
-✅ Best for: Direct, end-to-end encryption (Best with Cloudflare in "Full (Strict)" mode)
-
-### Steps (For Apache/Nginx):
-1. SSH into your VPS:
-```sh
-ssh root@your-vps-ip
-```
-2. Install Certbot (Let’s Encrypt SSL Client):
-- For Ubuntu/Debian:
-```sh
-sudo apt update
-sudo apt install certbot python3-certbot-apache # For Apache
-sudo apt install certbot python3-certbot-nginx # For Nginx
-```
-3. Run Certbot to Get an SSL Certificate:
-- For Apache:
-```sh
-sudo certbot --apache # For Apache
-# sudo certbot --nginx # For Nginx
-sudo certbot --nginx -d <YOURDOMAIN>.com -d www.<YOURDOMAIN>.com # For Nginx
-```
-4. Follow the instructions and select your domain.
-5. After installation, Certbot will automatically configure your web server to use the SSL certificate.
-6. Restart your web server:
-```sh
-sudo systemctl restart apache2 # For Apache
-sudo systemctl restart nginx # For Nginx
-```
-7. Set Up Auto-Renewal (SSL expires every 90 days):
-```sh
-sudo crontab -e
-```
-Add this line at the bottom to renew SSL automatically:
-```
-0 3 * * * certbot renew --quiet
-```
-Or
 ```bash
+curl -I http://example.com
+```
+
+If you do not use `www.example.com`, remove it from both `server_name` and the certificate command below.
+
+## 7. Add HTTPS with Let's Encrypt
+
+Install Certbot and its Nginx plugin:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+```
+
+Request the certificate and let Certbot add the HTTPS server block and redirect:
+
+```bash
+sudo certbot --nginx -d example.com -d www.example.com --redirect
+```
+
+Certificates expire every 90 days. On supported Ubuntu/Debian packages, Certbot installs a systemd renewal timer; confirm it and perform a safe renewal test:
+
+```bash
+sudo systemctl list-timers | grep certbot
 sudo certbot renew --dry-run
 ```
 
-🚀 Pros:
-- End-to-end encryption, even if Cloudflare is down.
-- Free and widely trusted.
+## 8. Deploy later updates safely
 
-❌ Cons:
-- Requires installation and maintenance.
-
----
-
-## Option 3: Buy an SSL from Hostinger
-✅ Best for: If you want a paid SSL and don’t mind managing it
-
-### Steps:
-1. Log in to Hostinger → Go to SSL section.
-2. Purchase or activate a free SSL if available.
-3. Follow Hostinger’s guide to install it on your VPS.
-
-🚀 Pros:
-- Support from Hostinger.
-- Some premium SSLs offer warranties and extra features.
-
-❌ Cons:
-- Costs money.
-- Manual setup required.
-
-## Which One Should You Choose?
-### Recommended Setup:
-1. Install Let’s Encrypt SSL on your VPS (`certbot`).
-2. Set Cloudflare to "Full (Strict)" mode to ensure full encryption.
-
-This setup ensures maximum security and end-to-end encryption 🔒.
-
-# Are SSL free?
-
-Yes! SSL certificates can be free depending on where you get them. Here’s a breakdown:
-
-### Free SSL Options
-1️⃣ Cloudflare SSL (Easiest)
-- Free SSL provided by Cloudflare.
-- No need to install anything on your VPS.
-- Just enable it in Cloudflare settings.
-- Best for simple websites where you don’t need full server-side encryption.
-
-2️⃣ Let’s Encrypt SSL (Best for Full Security)
-- Free SSL from Let’s Encrypt (widely trusted).
-- Requires installation on your VPS using `certbot`.
-- Renews automatically every 90 days.
-- Best for full end-to-end encryption when used with Cloudflare Full (Strict) mode.
-
-3️⃣ Hostinger Free SSL (Only for Some Plans)
-- Some Hostinger hosting plans include a free SSL.
-- If your plan supports it, you can activate it from your Hostinger dashboard.
-- Not useful if you’re hosting on a VPS (better to use Let’s Encrypt).
-
-### Paid SSL Options
-- Hostinger, GoDaddy, Namecheap, etc. sell SSL certificates ($10–$300 per year).
-- Paid SSLs sometimes offer warranties (protection in case of fraud or hacking).
-- Not necessary for most websites, unless you need EV SSL (green bar for business validation).
-
-### Recommended for You
-Since you have a VPS from InterServer and are using Cloudflare, I recommend:
-✅ Let’s Encrypt SSL on VPS + Cloudflare in "Full (Strict)" mode
-This gives you 100% free and strong encryption.
-
-# NginX config file for SSL
+For each release, run the following as `deploy` from the application directory. `npm ci` keeps installs reproducible, and the build must succeed before the running process is restarted.
 
 ```bash
-# Redirect non-www to www (Port 80 - HTTP)
-server {
-    listen 80;
-    server_name madusankadissanayake.com;
-   
-    # Redirect non-www to www
-    return 301 https://www.madusankadissanayake.com$request_uri;
-
-}
-
-# Redirect non-www to www (Port 443 - HTTPS)
-server {
-    listen 443 ssl http2;
-    server_name madusankadissanayake.com;
-
-    ssl_certificate /etc/letsencrypt/live/madusankadissanayake.com/fullchain.pem; # Your SSL certificate path
-    ssl_certificate_key /etc/letsencrypt/live/madusankadissanayake.com/privkey.pem; # Your SSL private key path
-
-    return 301 https://www.madusankadissanayake.com$request_uri;
-}
-
-# Main HTTPS block for www.madusankadissanayake.com
-# HTTPS server block (Port 443)
-server {
-    listen 443 ssl http2;
-    server_name www.madusankadissanayake.com;
-
-    # SSL settings
-    ssl_certificate /etc/letsencrypt/live/madusankadissanayake.com/fullchain.pem; # Your SSL certificate path
-    ssl_certificate_key /etc/letsencrypt/live/madusankadissanayake.com/privkey.pem; # Your SSL private key path
-
-    # SSL protocols and ciphers (adjust based on your preferences)
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers 'TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384';
-    ssl_prefer_server_ciphers off;
-
-    # Enable SSL session cache and settings
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 1d;
-    ssl_session_tickets off;
-
-    # Define document root and other settings
-    root /var/www/port-folio/.next/;
-
-    location /_next/static/ {
-        alias /var/www/port-folio/.next/static/;
-        expires 1y;
-        access_log off;
-        add_header Cache-Control "public, max-age=31536000, immutable";
-    }
-
-    location / {
-        proxy_pass http://localhost:3000; # Make sure your Next.js app runs on this port
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-   
-    location /test {
-        alias /var/www/port-folio/;
-        index index.html;
-    }
-
-
-    # Enable Gzip compression for performance improvements
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
-    gzip_vary on;
-
-    # Additional SSL headers (security best practices)
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-
-    # Logging
-    access_log /var/log/nginx/madusankadissanayake.com.access.log;
-    error_log /var/log/nginx/madusankadissanayake.com.error.log;
-}
+cd /var/www/my-next-app
+git fetch origin
+git switch main
+git pull --ff-only origin main
+npm ci
+npm run build
+pm2 reload my-next-app --update-env
+pm2 save
 ```
-- Check logs for errors
+
+For automated deployments, use a CI workflow that connects with a dedicated SSH key and runs the same commands. Do not expose an unauthenticated webhook that executes shell commands on the VPS.
+
+## 9. Verify and operate the deployment
 
 ```bash
-sudo tail -f /var/log/nginx/<YOURDOMAIN>.com.error.log
+curl -I https://example.com
+pm2 status
+pm2 logs my-next-app
+sudo journalctl -u nginx -f
+sudo tail -f /var/log/nginx/error.log
 ```
-**Verify HTTP/2:** After reloading NGINX, verify that HTTP/2 is working correctly using:
 
-```bash
-curl -I https://<YOURDOMAIN>.com
-```
+Useful follow-up hardening:
 
-### What’s Next?
-- Push updates easily: SSH into the server and pull the latest code:
-  ```bash
-  cd /home/deployuser/next-app
-  git pull origin main
-  npm install
-  npm run build
-  pm2 restart next-app
-  ```
+- Install and configure Fail2ban only after reviewing its SSH jail settings: `sudo apt install -y fail2ban`.
+- Remove or disable services you have confirmed are unused; do not blindly disable Apache if another site depends on it.
+- Apply regular OS, Node.js, and application dependency updates, and keep verified VPS backups.
+- Use the VPS provider's firewall as an additional network layer where available.
 
-- Automate deployments: Set up a GitHub webhook or GitHub Actions for auto-deploy.
+## References
 
-🚀 Done! Your Next.js app is running securely on your VPS.
+- [Next.js self-hosting guide](https://nextjs.org/docs/app/guides/self-hosting)
+- [PM2 startup-script documentation](https://pm2.keymetrics.io/docs/usage/startup/)
+- [Certbot Nginx instructions](https://certbot.eff.org/instructions?ws=nginx)
+- [NodeSource Debian/Ubuntu installation guide](https://github.com/nodesource/distributions/blob/master/DEV_README.md)
 
-# Additional Considerations
+✅ Done! Your Next.js app is now securely hosted on a VPS.
 
-### Optimize Next.js Performance
-- Enable Image Optimization by using a CDN like Cloudflare.
-- Enable caching with Nginx or a caching service like Redis.
-- Run Next.js in production mode (`npm run start` instead of `next dev`).
+# After deployment: beginner questions and next steps
 
-### Monitor Server Performance
-- Install htop to monitor CPU and RAM usage:
-  ```bash
-  sudo apt install htop -y
-  htop
-  ```
-- Use PM2 logs for debugging:
-  ```bash
-  pm2 logs next-app
-  ```
+Your application is running. This section explains what to do next without repeating the VPS setup above.
 
-### Enable Automatic Deployment
-- Set up GitHub Actions to SSH into the server and deploy updates automatically.
-- Alternatively, use webhooks to trigger a `git pull` and restart the app.
+## Start here: choose your setup
 
-### Set Up Backups
-- Regularly backup your VPS using provider snapshots.
-- Store important files offsite (e.g., AWS S3, Google Drive).
+Use this path for most projects:
 
-### DDoS & Security Protection
-- Use Cloudflare to protect against DDoS and manage DNS.
-- Harden SSH security (disable root login, use SSH keys only).
-- Enable fail2ban for brute-force protection.
+1. Keep the Let's Encrypt certificate created above.
+2. Keep the Nginx configuration created above; do not add a second manual SSL configuration.
+3. If you use Cloudflare for DNS, set its encryption mode to **Full (strict)** after the origin certificate works.
+4. Test the site, then set up backups and a repeatable deployment process.
 
-### Database Setup (If Needed)
-- If using a database (e.g., PostgreSQL, MySQL, MongoDB):
-- Install and configure it securely.
-- Use remote database hosting (like Supabase, PlanetScale, or MongoDB Atlas).
+A paid certificate is usually unnecessary. Let's Encrypt is free, trusted by modern browsers, and automatically renewable. The certificate from Cloudflare protects the connection between a visitor and Cloudflare; it does **not** replace a valid certificate on your VPS when you want end-to-end encryption.
 
-## Summary
-If your setup is simple, the original guide is all you need. However, for better security, performance, and automation, consider implementing monitoring, auto-deployment, Cloudflare, and backups.
+## Do I need Cloudflare?
 
-# jenkins for deployments ?
+No. The site works with DNS managed by your registrar and the Let's Encrypt certificate already installed on the VPS.
 
-it's highly recommended to use a separate VPS for Jenkins rather than running it on the same server as your Next.js app. Here’s why:  
+Cloudflare is optional. It can manage DNS and add CDN, DDoS mitigation, caching, and web-application-firewall features. Use it only if those benefits suit your site.
 
-## Why Use a Separate VPS for Jenkins?
+### Option A — no Cloudflare
 
-### Security Isolation  
-- Jenkins requires admin/root-level access to deploy applications, making it a high-value target for attacks.  
-- If Jenkins gets compromised, an attacker could gain access to your Next.js server as well.  
+At your domain registrar or DNS host, create these records:
 
-### Performance Stability  
-- Jenkins runs resource-heavy jobs (e.g., builds, tests, deployments).  
-- Running it on the same server as Next.js could cause CPU spikes, slow performance, or even crashes.  
+| Host | Type | Value | Use it for |
+| --- | --- | --- | --- |
+| `@` | `A` | Your VPS IPv4 address | `example.com` |
+| `www` | `CNAME` | `example.com` | `www.example.com` |
 
-### Easier Maintenance & Scaling  
-- Keeping Jenkins separate allows you to scale or migrate the CI/CD setup independently.  
-- If Jenkins needs updates, it won’t affect your production app.  
+Add an `AAAA` record only when your VPS has a working IPv6 address and Nginx is reachable on IPv6. DNS changes can take time to propagate.
 
-### Dedicated Storage for Build Artifacts  
-- Jenkins needs storage for logs, artifacts, and pipelines.  
-- Keeping it separate prevents disk space issues on your main app server.  
+### Option B — use Cloudflare
 
-## Recommended Setup  
+1. Add the domain to Cloudflare and copy the two Cloudflare nameservers it shows.
+2. At your registrar, replace the current nameservers with those Cloudflare nameservers.
+3. In Cloudflare **DNS**, create the `A` record for `@` and the `CNAME` record for `www` shown above.
+4. Leave both records **DNS only** (grey cloud) while you first test the VPS and obtain or renew the Let's Encrypt certificate.
+5. After `https://example.com` works, you may enable the **Proxied** (orange cloud) setting for web records. Do not proxy non-web services such as mail records.
 
-### Option 1: Use a Small VPS for Jenkins  
-- Choose a low-cost VPS (e.g., 2 vCPUs, 4GB RAM).  
-- Keep Jenkins firewalled and accessible only via VPN or SSH keys.  
-- Use a reverse proxy (Nginx) with SSL to secure the Jenkins UI.  
+> DNS only still serves your website normally. It simply connects visitors directly to the VPS rather than routing them through Cloudflare.
 
-### Option 2: Use a Cloud-Based CI/CD Service  
-Instead of hosting Jenkins, consider GitHub Actions, GitLab CI/CD, or CircleCI for easier management.  
+## Which Cloudflare SSL/TLS setting should I choose?
 
-### Option 3: Use a Containerized Jenkins (Docker/Kubernetes)  
-- Run Jenkins inside Docker to isolate it from the main system.  
-- Deploy Jenkins inside Kubernetes for better scalability.  
+For this guide, choose **Full (strict)** once your Let's Encrypt certificate is valid:
 
-## Summary  
-- Best Practice: Use a separate VPS for Jenkins to ensure security, performance, and maintainability.  
-- Alternative: Use a cloud-based CI/CD service to avoid maintenance overhead.  
-- Security Tip: Keep Jenkins behind a firewall, with limited SSH access, and enable authentication.  
+~~~text
+Visitor ── HTTPS ──> Cloudflare ── HTTPS, certificate verified ──> Your VPS
+~~~
 
-Want help setting up Jenkins on a separate VPS? 🚀
+In the Cloudflare dashboard, open **SSL/TLS → Overview** and select **Full (strict)**.
 
-# Map Hostinger domain -> Cloudflare -> InterServer VPS
+Avoid **Flexible** for this deployment. It encrypts only the visitor-to-Cloudflare connection and uses HTTP from Cloudflare to your VPS. Because the Nginx setup above redirects HTTP to HTTPS, Flexible can also produce an `ERR_TOO_MANY_REDIRECTS` loop.
 
-## Add Your Domain to Cloudflare
-1. Log in to Cloudflare ([https://dash.cloudflare.com/](https://dash.cloudflare.com/)).
-2. Click "Add a Site" and enter your domain (e.g., `<YOURDOMAIN>.com`).
-3. Click "Continue" and select the Free Plan (or another plan if needed).
-4. Cloudflare will scan existing DNS records. Click "Continue".
+Use **Full** only as a short-lived troubleshooting option when the VPS has HTTPS but its certificate cannot yet be validated. Return to Full (strict) as soon as the certificate is valid.
 
-## Change Hostinger Nameservers to Cloudflare
-1. Go to Hostinger ([https://www.hostinger.com/](https://www.hostinger.com/)) and log in.
-2. Open the Domains section and select your domain.
-3. Look for the option "Change Nameservers".
-4. Replace the current nameservers with the Cloudflare nameservers provided to you (usually something like `ns1.cloudflare.com` and `ns2.cloudflare.com`).
-5. Click "Save" or "Update".
+### Should I enable “Always Use HTTPS” in Cloudflare?
 
-> Note: It may take a few hours (up to 24 hours) for the changes to propagate.
+The Certbot command in the main guide used `--redirect`, so Nginx already redirects HTTP to HTTPS. Keep that configuration and do not add another redirect unless you have a reason to manage redirects at Cloudflare instead.
 
-## Add A and CNAME Records in Cloudflare
-Now, you need to point your domain to your InterServer VPS.
+If you later move the redirect to Cloudflare, enable **SSL/TLS → Edge Certificates → Always Use HTTPS** and remove the duplicate origin redirect. Test in a private browser window after changing either setting.
 
-1. In Cloudflare, go to DNS settings.
-2. Click "Add Record" and choose:
-   - Type: `A`
-   - Name: `@` (or `<YOURDOMAIN>.com`)
-   - IPv4 Address: Enter your InterServer VPS IP address
-   - TTL: Auto
-   - Proxy status: DNS Only (Grey Cloud) for now, later you can enable the proxy.
-   - Click Save.
+## SSL certificate questions
 
-3. Add a CNAME Record for `www`:
-   - Type: `CNAME`
-   - Name: `www`
-   - Target: `<YOURDOMAIN>.com`
-   - TTL: Auto
-   - Proxy Status: DNS Only (Grey Cloud).
-   - Click Save.
+### Is SSL free?
 
-## Configure SSL in Cloudflare
-To make your website secure with HTTPS:
+Yes. Let's Encrypt certificates are free and suitable for most personal and business websites. Their short lifetime is intentional; Certbot renews them automatically.
 
-1. In Cloudflare, go to SSL/TLS.
-2. Choose "Full (strict)" mode if your VPS has an SSL certificate.
-   - If you don’t have an SSL certificate installed on your VPS, select "Flexible" mode.
-3. Enable "Always Use HTTPS".
+### Do I need to create a cron job?
 
-## Update Your VPS Web Server (Apache/Nginx)
-On your InterServer VPS, ensure that your web server is properly configured:
+Usually no. The Ubuntu/Debian Certbot package normally installs a systemd timer. Confirm it and perform a test renewal:
 
-- If using Apache, update the Virtual Host configuration:
-  ```sh
-  sudo nano /etc/apache2/sites-available/<YOURDOMAIN>.com.conf
-  ```
-  Add:
-  ```
-  <VirtualHost *:80>
-      ServerName <YOURDOMAIN>.com
-      ServerAlias www.<YOURDOMAIN>.com
-      DocumentRoot /var/www/html
-  </VirtualHost>
-  ```
+~~~bash
+sudo systemctl list-timers | grep certbot
+sudo certbot renew --dry-run
+~~~
 
-- If using Nginx, edit the configuration file:
-  ```sh
-  sudo nano /etc/nginx/sites-available/<YOURDOMAIN>.com
-  ```
-  Add:
-  ```
-  server {
-      listen 80;
-      server_name <YOURDOMAIN>.com www.<YOURDOMAIN>.com;
-      root /var/www/html;
-      index index.html index.php;
-  }
-  ```
-- Restart the web server:
-  ```sh
-  sudo systemctl restart apache2
-  # or
-  sudo systemctl restart nginx
-  ```
+Do not add a cron job unless your system has no Certbot timer and you have confirmed how Certbot was installed.
 
-## Verify Everything
-1. Wait for DNS propagation (can take a few hours).
-2. Visit `<YOURDOMAIN>.com` in a browser.
-3. Check your Cloudflare DNS settings for errors.
+### Where are the certificate files?
 
-## Final Notes
-- If you face any issues, check your VPS firewall and allow ports 80 (HTTP) and 443 (HTTPS):
-  ```sh
-  sudo ufw allow 80
-  sudo ufw allow 443
-  sudo ufw enable
-  ```
-- You can enable Cloudflare Proxy (Orange Cloud) after confirming the site works.
+For `example.com`, Certbot stores them here:
 
+~~~text
+/etc/letsencrypt/live/example.com/fullchain.pem
+/etc/letsencrypt/live/example.com/privkey.pem
+~~~
+
+Do not move, edit, commit, or share `privkey.pem`. Certbot and the Nginx plugin manage these files and the web-server configuration for you.
+
+### Why should I not copy a separate Nginx SSL block?
+
+The main guide already gives Certbot control of the Nginx configuration. Adding another certificate block can create duplicate `server_name` entries, conflicting redirects, and renewal problems. Only write a custom HTTPS configuration when you understand the existing Certbot-generated configuration and have a specific need.
+
+## Pick one canonical domain
+
+Choose whether visitors should use `example.com` or `www.example.com` as the primary address. Both names need DNS records and must be included in the certificate request if you want both to work.
+
+The main guide allows both names. To redirect one to the other, add a small dedicated Nginx server block after the certificate is working, test it with `sudo nginx -t`, then reload Nginx. Do not make this change while Cloudflare is in Flexible mode.
+
+## Updating the application
+
+For a manual release, use the deployment commands from **8. Deploy later updates safely** above:
+
+~~~bash
+cd /var/www/my-next-app
+git fetch origin
+git switch main
+git pull --ff-only origin main
+npm ci
+npm run build
+pm2 reload my-next-app --update-env
+pm2 save
+~~~
+
+If any command fails, stop and fix it before continuing. In particular, do not restart PM2 after a failed build.
+
+For automatic releases, use a dedicated deployment SSH key and a CI workflow rather than exposing a public webhook that runs shell commands. See [Set up GitHub Actions](setup-github-action.md) for the related workflow guide.
+
+## Everyday monitoring
+
+Use these commands when checking the app or investigating an error:
+
+| What you need | Command |
+| --- | --- |
+| Is the app process online? | `pm2 status` |
+| Application logs | `pm2 logs my-next-app` |
+| Nginx service logs | `sudo journalctl -u nginx -f` |
+| Nginx errors | `sudo tail -f /var/log/nginx/error.log` |
+| Disk and memory overview | `df -h` and `free -h` |
+| Live CPU/RAM view (optional) | `sudo apt install -y htop` then `htop` |
+
+Press `Ctrl+C` to stop following a log. If the site responds with a `502 Bad Gateway`, check `pm2 status` and the PM2 logs first; it normally means the Next.js process is stopped, crashing, or listening on a different port.
+
+## Fail2ban: optional SSH protection
+
+Fail2ban watches logs and temporarily blocks repeated failed login attempts. It is useful on a public VPS, but it is not a replacement for SSH keys, a firewall, and updates.
+
+Install and enable it only after you have confirmed SSH-key access:
+
+~~~bash
+sudo apt install -y fail2ban
+sudo systemctl enable --now fail2ban
+sudo systemctl status fail2ban
+~~~
+
+Check the SSH jail status:
+
+~~~bash
+sudo fail2ban-client status
+sudo fail2ban-client status sshd
+~~~
+
+Keep a second SSH session open when changing access controls. If you are banned by mistake, use the VPS provider's web console to regain access.
+
+## Backups and recovery
+
+A Git repository is not a complete backup. It usually does not contain production environment files, uploaded user content, databases, or VPS configuration.
+
+At minimum:
+
+1. Enable scheduled VPS snapshots with your hosting provider.
+2. Back up databases according to their database engine and store encrypted copies off the VPS.
+3. Back up user uploads and the information needed to recreate `.env.production` securely.
+4. Record your DNS records and keep deployment keys in a password manager or secret manager.
+5. Test restoring a backup. A backup you have never restored is not yet proven.
+
+## Database and environment-variable safety
+
+Keep database credentials and API keys in `.env.production` with restrictive permissions. Never expose secret values through a variable beginning with `NEXT_PUBLIC_`: Next.js includes those values in the browser bundle during the build.
+
+For a database running on another server, restrict its firewall to the VPS IP address where possible. For a database on the same VPS, bind it to localhost unless another trusted service genuinely needs network access.
+
+## Troubleshooting
+
+| Symptom | Check first | Typical fix |
+| --- | --- | --- |
+| Domain opens the wrong site or does not resolve | DNS records and propagation | Confirm the `A` and `CNAME` values and wait for DNS propagation. |
+| `502 Bad Gateway` | `pm2 status` and `pm2 logs my-next-app` | Start/restart the named app after fixing its error; confirm it listens on port 3000. |
+| Certificate request fails | DNS, ports 80/443, and Nginx | Make sure the domain reaches this VPS and `sudo nginx -t` succeeds. |
+| `ERR_TOO_MANY_REDIRECTS` | Cloudflare SSL/TLS mode | Use Full (strict), not Flexible; make sure only one layer owns the HTTP-to-HTTPS redirect. |
+| Cloudflare shows error 526 | VPS certificate | Renew or fix the origin certificate, then use Full (strict). |
+| Site changed but visitors see old content | Build and browser cache | Confirm `npm run build` succeeded; test in a private window and clear CDN cache only when necessary. |
+| SSH access stopped working | A second SSH session or provider console | Check `sudo sshd -t`, firewall rules, and the deployment user's authorized key. |
+
+## Recommended maintenance routine
+
+- **Weekly:** review PM2/Nginx errors and free disk space.
+- **Monthly:** apply system updates, update application dependencies after testing, and run `sudo certbot renew --dry-run`.
+- **Before major changes:** create a VPS snapshot or verified backup.
+- **After changing Nginx:** always run `sudo nginx -t` before `sudo systemctl reload nginx`.
+
+## Further reading
+
+- [Cloudflare: Full (strict) encryption](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/full-strict/)
+- [Cloudflare: Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/)
+- [Cloudflare: DNS records](https://developers.cloudflare.com/dns/manage-dns-records/how-to/create-dns-records/)
+- [Certbot documentation](https://certbot.eff.org/)
