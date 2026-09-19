@@ -179,7 +179,8 @@ Paste this configuration, replacing `example.com` with your domain. It proxies t
 ```nginx
 server {
     listen 80;
-    listen [::]:80;
+    # Uncomment only after IPv6 is confirmed; see the final configuration below.
+    # listen [::]:80;
     server_name example.com www.example.com;
 
     client_max_body_size 10m;
@@ -206,7 +207,7 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Before requesting a certificate, create DNS `A` (and, if applicable, `AAAA`) records for `example.com` and `www.example.com` pointing to this VPS. Wait for DNS propagation, then check that the site responds on HTTP:
+Before requesting a certificate, create DNS `A` records for `example.com` and `www.example.com` pointing to this VPS. Add `AAAA` records only after IPv6 is confirmed. Wait for DNS propagation, then check that the site responds on HTTP:
 
 ```bash
 curl -I http://example.com
@@ -233,6 +234,121 @@ Certificates expire every 90 days. On supported Ubuntu/Debian packages, Certbot 
 ```bash
 sudo systemctl list-timers | grep certbot
 sudo certbot renew --dry-run
+```
+
+### Final Nginx configuration (after everything is configured)
+
+After Certbot has issued the certificate, the complete configuration can look like this. It makes `www.example.com` the canonical address, keeps Next.js private on port 3000, and sends all public traffic through Nginx.
+
+> Replace every occurrence of `example.com` with your domain. This example assumes the certificate covers both `example.com` and `www.example.com`.
+
+```nginx
+# HTTP: redirect both names to the canonical HTTPS address.
+server {
+    listen 80;
+    # Uncomment only after IPv6 is confirmed; see the IPv6 notes below.
+    # listen [::]:80;
+
+    server_name example.com www.example.com;
+    return 301 https://www.example.com$request_uri;
+}
+
+# HTTPS: redirect the non-www hostname to www.
+server {
+    listen 443 ssl http2;
+    # Uncomment only after IPv6 is confirmed; see the IPv6 notes below.
+    # listen [::]:443 ssl http2;
+
+    server_name example.com;
+
+    # These files are created and renewed by Certbot. Never edit or share privkey.pem.
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    return 301 https://www.example.com$request_uri;
+}
+
+# HTTPS: serve the canonical hostname and proxy it to Next.js.
+server {
+    listen 443 ssl http2;
+    # Uncomment only after IPv6 is confirmed; see the IPv6 notes below.
+    # listen [::]:443 ssl http2;
+
+    server_name www.example.com;
+
+    # These files are created and renewed by Certbot. Never edit or share privkey.pem.
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # Raise this only when the app accepts uploads larger than Nginx's 1 MB default.
+    client_max_body_size 10m;
+
+    # Separate logs make production troubleshooting easier.
+    access_log /var/log/nginx/example.com.access.log;
+    error_log /var/log/nginx/example.com.error.log;
+
+    location / {
+        # The app must be bound to localhost, not exposed directly on the public network.
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        # Preserve the original host, client address, and request scheme for Next.js.
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Required for WebSocket upgrades; harmless for ordinary HTTP requests.
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Safe general-purpose response headers.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Enable ONLY after every current and future subdomain supports HTTPS.
+    # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+}
+```
+
+#### Should I enable the IPv6 `listen [::]` lines?
+
+Leave them commented if you are unsure. They are not required for IPv4 users. Enable all three only when:
+
+1. Your VPS has a working public IPv6 address.
+2. DNS has an `AAAA` record pointing each hostname to that address.
+3. These checks work:
+
+```bash
+curl -6 -I http://example.com
+curl -6 -I https://www.example.com
+```
+
+Do not create an `AAAA` record until IPv6 works: clients that prefer IPv6 could otherwise be unable to reach the site. If IPv6 is disabled on the VPS, uncommenting the lines can make `sudo nginx -t` fail.
+
+Do not add a `location /test` alias that points at the Next.js application directory. It can expose `.env.production`, source files, or other deployment-only files.
+
+Always validate and reload safely:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Verify both domain names, the HTTPS redirect, and the installed certificate:
+
+```bash
+curl -I http://example.com      # Expected: HTTP 301 redirect to https://www.example.com/...
+curl -I http://www.example.com  # Expected: HTTP 301 redirect to https://www.example.com/...
+curl -I https://example.com     # Expected: HTTP 301 redirect to https://www.example.com/...
+curl -I https://www.example.com # Expected: HTTP 200; the live site responds successfully.
+sudo certbot certificates        # Expected: the certificate lists example.com and www.example.com.
 ```
 
 ## 8. Deploy later updates safely
